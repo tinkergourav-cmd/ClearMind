@@ -9,6 +9,6 @@
     "tests": "pass",
     "test_quality": "skipped",
     "docker_build": "skipped",
-    "summary": "npm run build passes (exit code 0). No test suite exists in this project. grep confirms zero remaining references to any legacy identifiers (nexus-app-state, nexus-active-project, nexus-default-project, appData, cm-migration-status, migration/rollback functions, premium-* keys) in src/. Git log shows clean commits."
+    "summary": "npm run build passes (exit code 0). No test suite exists in this project. hydrateProject helper added and integrated into all four affected code paths."
   }
 }

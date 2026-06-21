@@ -2,7 +2,7 @@
   "id": "FEAT-004",
   "type": "fix",
   "description": "Wave 1: Create reusable hydrateProject() helper and apply it to switchProject, cycleToProject, deleteProject switch path, and exportSingleProject to fix non-active project data loading.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "In src/persistenceService.js: Add hydrateProject(projectId) function that reads project metadata, loads all workspaces from localStorage (with Firestore fallback), loads tasks/taskGroups, and returns a fully assembled project object.",
     "In src/App.jsx: Import hydrateProject from persistenceService.",
@@ -25,5 +25,5 @@
     "Run npm run build in /projects/sandbox/ClearMind and confirm exit code 0"
   ],
   "blocked_reason": null,
-  "findings": null
+  "findings": "All four code paths now use the same hydrateProject mechanism. cycleToProject was also missing task/taskGroup loading entirely (it never called setTasks/setTaskGroups), which is now fixed. cycleToProject also now persists tasks/taskGroups for the current project before switching (matching switchProject behavior). Build passes cleanly."
 }
