@@ -1,0 +1,18 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Install dependencies and verify baseline build passes before making changes.",
+  "status": "completed",
+  "steps": [
+    "Run `npm install` in /projects/sandbox/ClearMind",
+    "Run `npm run build` and confirm it succeeds with exit code 0"
+  ],
+  "acceptance_criteria": [
+    "`npm run build` exits with code 0"
+  ],
+  "verification": [
+    "Run `npm run build` in /projects/sandbox/ClearMind"
+  ],
+  "blocked_reason": null,
+  "findings": "npm install added 349 packages successfully. npm run build (vite build) completed in ~3.7s with exit code 0. One warning about chunk size >500KB but build passes. No test suite exists."
+}
