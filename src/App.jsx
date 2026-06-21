@@ -40,6 +40,7 @@ import {
   loadProjectFromFirestore,
   loadWorkspaceFromFirestore,
   loadAllWorkspacesFromFirestore,
+  loadAllProjectsFromFirestore,
   loadTasksFromFirestore,
   saveUserMeta,
   loadUserMeta
@@ -703,7 +704,7 @@ export default function WorkflowApp() {
             if (userMeta && userMeta.activeProjectId) {
               const projectMeta = await loadProjectFromFirestore(userMeta.activeProjectId);
               if (projectMeta) {
-                // Load workspaces from subcollections
+                // Load workspaces from subcollections (only for active project)
                 const workspaceIds = projectMeta.workspaceIds || [];
                 const loadedWorkspaces = [];
                 for (const wsId of workspaceIds) {
@@ -712,15 +713,43 @@ export default function WorkflowApp() {
                 }
                 const tasksData = await loadTasksFromFirestore(userMeta.activeProjectId);
 
-                // Reconstruct a projects array entry for backward compat with init code below
-                const reconstructedProject = {
-                  ...projectMeta,
-                  workspaces: loadedWorkspaces.length > 0 ? loadedWorkspaces : undefined,
-                  tasks: tasksData ? (tasksData.tasks || []) : [],
-                  taskGroups: tasksData ? (tasksData.taskGroups || []) : []
-                };
+                // Load ALL projects from Firestore (not just the active one)
+                const allProjectsMap = await loadAllProjectsFromFirestore();
+                const allProjects = [];
+                if (allProjectsMap && allProjectsMap.size > 0) {
+                  for (const [pid, pmeta] of allProjectsMap) {
+                    if (pid === userMeta.activeProjectId) {
+                      // For the active project, attach full workspace/task data
+                      allProjects.push({
+                        ...pmeta,
+                        id: pid,
+                        workspaces: loadedWorkspaces.length > 0 ? loadedWorkspaces : undefined,
+                        tasks: tasksData ? (tasksData.tasks || []) : [],
+                        taskGroups: tasksData ? (tasksData.taskGroups || []) : []
+                      });
+                    } else {
+                      // For non-active projects, include metadata only (no workspace data loaded)
+                      allProjects.push({
+                        ...pmeta,
+                        id: pid,
+                        workspaces: undefined,
+                        tasks: [],
+                        taskGroups: []
+                      });
+                    }
+                  }
+                } else {
+                  // Fallback: if getDocs on projects collection failed, at least include active project
+                  allProjects.push({
+                    ...projectMeta,
+                    id: userMeta.activeProjectId,
+                    workspaces: loadedWorkspaces.length > 0 ? loadedWorkspaces : undefined,
+                    tasks: tasksData ? (tasksData.tasks || []) : [],
+                    taskGroups: tasksData ? (tasksData.taskGroups || []) : []
+                  });
+                }
 
-                firestoreProjects = [reconstructedProject];
+                firestoreProjects = allProjects;
                 firestoreActiveId = userMeta.activeProjectId;
                 firestoreDefaultId = userMeta.defaultProjectId || userMeta.activeProjectId;
 
@@ -737,6 +766,17 @@ export default function WorkflowApp() {
                 }
 
                 if (firestoreProjects) {
+                  // Hydrate localStorage with ALL project metadata from Firestore
+                  for (const proj of firestoreProjects) {
+                    const wsIds = (proj.workspaces || []).map(ws => ws.id);
+                    saveProjectMeta(proj.id, {
+                      id: proj.id, name: proj.name || 'Untitled', description: proj.description || '',
+                      password: proj.password || null, thumbnail: proj.thumbnail || null,
+                      lastModified: proj.lastModified || Date.now(), activeTab: proj.activeTab || wsIds[0] || '',
+                      nextId: proj.nextId || 1, reminders: proj.reminders || [],
+                      workspaceIds: proj.workspaceIds || wsIds, schemaVersion: 2
+                    });
+                  }
                   setSyncStatus('synced');
                 }
               }

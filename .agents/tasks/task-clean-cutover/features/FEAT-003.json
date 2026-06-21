@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-003",
+  "type": "fix",
+  "description": "Fix project persistence bug: on initialization via Firestore, load ALL project documents (not just the active project) so that non-active projects survive a page refresh.",
+  "status": "in_progress",
+  "steps": [
+    "In src/persistenceService.js: Add a loadAllProjectsFromFirestore() function that queries all documents from the Firestore projects collection using getDocs.",
+    "In src/persistenceService.js: Update initializePersistence() Firestore path to call loadAllProjectsFromFirestore() and populate the projects Map with ALL projects, not just the active one.",
+    "In src/persistenceService.js: Hydrate localStorage with ALL project metadata (cm-proj-* keys) from Firestore, not just the active project.",
+    "In src/App.jsx: Update the Firestore init path to load ALL project documents from Firestore, reconstruct all projects in firestoreProjects array, while only loading workspace data for the active project.",
+    "Verify npm run build passes."
+  ],
+  "acceptance_criteria": [
+    "initializePersistence() Firestore path loads all projects from Firestore into the projects Map",
+    "App.jsx Firestore init path loads all projects into firestoreProjects array",
+    "Only the active project's workspaces are loaded into memory (performance optimization)",
+    "All project metadata is hydrated to localStorage (cm-proj-* keys for each project)",
+    "npm run build exits with code 0"
+  ],
+  "verification": [
+    "Run npm run build in /projects/sandbox/ClearMind and confirm exit code 0"
+  ],
+  "blocked_reason": null,
+  "findings": null
+}

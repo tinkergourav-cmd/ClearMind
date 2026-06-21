@@ -346,6 +346,27 @@ export async function loadWorkspaceFromFirestore(projectId, workspaceId) {
 }
 
 /**
+ * Load all project documents from Firestore.
+ * Queries the entire `projects` collection to enumerate all projects.
+ * @returns {Promise<Map<string, object>|null>} Map of projectId -> metadata, or null on error
+ */
+export async function loadAllProjectsFromFirestore() {
+  if (!isFirebaseConfigured() || !db) return null;
+  try {
+    const collRef = collection(db, 'projects');
+    const snapshot = await getDocs(collRef);
+    const projects = new Map();
+    snapshot.forEach((docSnap) => {
+      projects.set(docSnap.id, docSnap.data());
+    });
+    return projects;
+  } catch (error) {
+    console.warn('[PersistenceService] Error loading all projects from Firestore:', error.message);
+    return null;
+  }
+}
+
+/**
  * Load all workspaces for a project from Firestore subcollection.
  * @param {string} projectId
  * @returns {Promise<Map<string, object>|null>} Map of workspaceId -> data
@@ -473,44 +494,56 @@ export async function initializePersistence() {
       const activeProjectId = userMeta.activeProjectId;
       const defaultProjectId = userMeta.defaultProjectId || activeProjectId;
 
-      const projectMeta = await loadProjectFromFirestore(activeProjectId);
-      if (projectMeta) {
-        // Load all workspaces for the active project
-        const workspaceIds = projectMeta.workspaceIds || [];
-        const activeWorkspaces = new Map();
-        for (const wsId of workspaceIds) {
-          const wsData = await loadWorkspaceFromFirestore(activeProjectId, wsId);
-          if (wsData) {
-            activeWorkspaces.set(wsId, wsData);
-          }
-        }
-
-        // Load tasks
-        const tasksData = await loadTasksFromFirestore(activeProjectId);
-        const tasks = tasksData ? (tasksData.tasks || []) : [];
-        const taskGroups = tasksData ? (tasksData.taskGroups || []) : [];
-
-        // Build projects map (at minimum includes active project)
+      // Load ALL projects from Firestore (not just the active one)
+      const allProjects = await loadAllProjectsFromFirestore();
+      if (allProjects && allProjects.size > 0) {
+        // Build projects map from all discovered project documents
         const projects = new Map();
-        projects.set(activeProjectId, projectMeta);
-
-        // Hydrate localStorage with Firestore data
-        saveMeta({ activeProjectId, defaultProjectId, schemaVersion: SCHEMA_VERSION });
-        saveProjectMeta(activeProjectId, projectMeta);
-        for (const [wsId, wsData] of activeWorkspaces) {
-          saveWorkspace(activeProjectId, wsId, wsData);
+        for (const [pid, pmeta] of allProjects) {
+          projects.set(pid, pmeta);
         }
-        saveTasks(activeProjectId, { tasks, taskGroups });
 
-        return {
-          projects,
-          activeWorkspaces,
-          tasks,
-          taskGroups,
-          activeProjectId,
-          defaultProjectId,
-          source: 'firestore'
-        };
+        // If the active project was not found in Firestore, fall through to localStorage
+        const projectMeta = projects.get(activeProjectId);
+        if (!projectMeta) {
+          console.warn('[PersistenceService] Active project not found in Firestore projects collection, falling back.');
+        } else {
+          // Load workspaces only for the active project (performance optimization)
+          const workspaceIds = projectMeta.workspaceIds || [];
+          const activeWorkspaces = new Map();
+          for (const wsId of workspaceIds) {
+            const wsData = await loadWorkspaceFromFirestore(activeProjectId, wsId);
+            if (wsData) {
+              activeWorkspaces.set(wsId, wsData);
+            }
+          }
+
+          // Load tasks for the active project
+          const tasksData = await loadTasksFromFirestore(activeProjectId);
+          const tasks = tasksData ? (tasksData.tasks || []) : [];
+          const taskGroups = tasksData ? (tasksData.taskGroups || []) : [];
+
+          // Hydrate localStorage with ALL project metadata
+          saveMeta({ activeProjectId, defaultProjectId, schemaVersion: SCHEMA_VERSION });
+          for (const [pid, pmeta] of projects) {
+            saveProjectMeta(pid, pmeta);
+          }
+          // Hydrate active project workspace data in localStorage
+          for (const [wsId, wsData] of activeWorkspaces) {
+            saveWorkspace(activeProjectId, wsId, wsData);
+          }
+          saveTasks(activeProjectId, { tasks, taskGroups });
+
+          return {
+            projects,
+            activeWorkspaces,
+            tasks,
+            taskGroups,
+            activeProjectId,
+            defaultProjectId,
+            source: 'firestore'
+          };
+        }
       }
     }
   } catch (firestoreErr) {
