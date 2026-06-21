@@ -20,7 +20,6 @@ import CardEditorPanel from './CardEditorPanel';
 import { isFirebaseConfigured } from './firebase';
 import { validateWorkspaces } from './workspaceValidator';
 import {
-  initializePersistence,
   saveProjectMeta,
   saveWorkspace as saveWorkspaceToLocal,
   saveTasks,
