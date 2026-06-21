@@ -170,6 +170,109 @@ export function loadAllProjectIds() {
 }
 
 // =============================================================================
+// PROJECT HYDRATION
+// =============================================================================
+
+/**
+ * Hydrate a project from storage, assembling a complete object with workspaces
+ * and tasks. Tries localStorage first (already hydrated from Firestore during
+ * init), then falls back to Firestore if workspace data is missing locally.
+ *
+ * @param {string} projectId - The project ID to hydrate
+ * @returns {Promise<object|null>} A complete project object with workspaces and
+ *   tasks arrays, or null if the project cannot be found.
+ *
+ * Returned shape:
+ * {
+ *   ...projectMetadata,
+ *   workspaces: [ { id, name, nodes, edges, groups, pins, images } ],
+ *   tasks: [ ... ],
+ *   taskGroups: [ ... ]
+ * }
+ */
+export async function hydrateProject(projectId) {
+  // Step 1: Load project metadata from localStorage
+  let meta = loadProjectMeta(projectId);
+
+  // If localStorage has no metadata, try Firestore
+  if (!meta) {
+    meta = await loadProjectFromFirestore(projectId);
+    if (!meta) return null;
+    // Hydrate localStorage for future reads
+    saveProjectMeta(projectId, meta);
+  }
+
+  // Step 2: Obtain workspaceIds
+  const workspaceIds = meta.workspaceIds || [];
+
+  // Step 3: Load all workspace data
+  const workspaces = [];
+  let needsFirestoreFallback = false;
+
+  for (const wsId of workspaceIds) {
+    const wsData = loadWorkspace(projectId, wsId);
+    if (wsData) {
+      workspaces.push(wsData);
+    } else {
+      needsFirestoreFallback = true;
+      break;
+    }
+  }
+
+  // If any workspace was missing locally, try loading all from Firestore
+  if (needsFirestoreFallback) {
+    workspaces.length = 0; // Reset
+    const firestoreWorkspaces = await loadAllWorkspacesFromFirestore(projectId);
+    if (firestoreWorkspaces && firestoreWorkspaces.size > 0) {
+      for (const wsId of workspaceIds) {
+        const wsData = firestoreWorkspaces.get(wsId);
+        if (wsData) {
+          workspaces.push(wsData);
+          // Hydrate localStorage for future reads
+          saveWorkspace(projectId, wsId, wsData);
+        } else {
+          // Workspace ID listed but no data found - create minimal placeholder
+          workspaces.push({ id: wsId, name: 'Workspace', nodes: [], edges: [], groups: [], pins: [], images: [] });
+        }
+      }
+    } else {
+      // No workspace data from Firestore either - create placeholders
+      for (const wsId of workspaceIds) {
+        workspaces.push({ id: wsId, name: 'Workspace', nodes: [], edges: [], groups: [], pins: [], images: [] });
+      }
+    }
+  }
+
+  // Step 4: Load tasks and taskGroups
+  let tasks = [];
+  let taskGroups = [];
+
+  const tasksData = loadTasks(projectId);
+  if (tasksData) {
+    tasks = tasksData.tasks || [];
+    taskGroups = tasksData.taskGroups || [];
+  } else {
+    // Try Firestore fallback
+    const firestoreTasks = await loadTasksFromFirestore(projectId);
+    if (firestoreTasks) {
+      tasks = firestoreTasks.tasks || [];
+      taskGroups = firestoreTasks.taskGroups || [];
+      // Hydrate localStorage for future reads
+      saveTasks(projectId, { tasks, taskGroups });
+    }
+  }
+
+  // Step 5: Assemble complete project object
+  return {
+    ...meta,
+    id: projectId,
+    workspaces,
+    tasks,
+    taskGroups
+  };
+}
+
+// =============================================================================
 // FIRESTORE SUBCOLLECTION API
 // =============================================================================
 //

@@ -1,0 +1,29 @@
+{
+  "id": "FEAT-004",
+  "type": "fix",
+  "description": "Wave 1: Create reusable hydrateProject() helper and apply it to switchProject, cycleToProject, deleteProject switch path, and exportSingleProject to fix non-active project data loading.",
+  "status": "in_progress",
+  "steps": [
+    "In src/persistenceService.js: Add hydrateProject(projectId) function that reads project metadata, loads all workspaces from localStorage (with Firestore fallback), loads tasks/taskGroups, and returns a fully assembled project object.",
+    "In src/App.jsx: Import hydrateProject from persistenceService.",
+    "In src/App.jsx: Refactor switchProject() to use hydrateProject() for loading the target project's workspaces and tasks instead of relying on in-memory target.workspaces.",
+    "In src/App.jsx: Refactor cycleToProject() to use hydrateProject() and also set tasks/taskGroups (currently missing).",
+    "In src/App.jsx: Refactor deleteProject() switch-to-next path to use hydrateProject() instead of next.workspaces || defaultWorkspaces.",
+    "In src/App.jsx: Refactor exportSingleProject() to hydrate the project from storage before exporting, ensuring complete workspace and task data.",
+    "Verify npm run build passes."
+  ],
+  "acceptance_criteria": [
+    "A reusable hydrateProject(projectId) function exists in persistenceService.js",
+    "hydrateProject reads metadata, loads all workspace data, loads tasks/taskGroups, returns a complete project",
+    "switchProject uses hydrateProject for target project data",
+    "cycleToProject uses hydrateProject for target project data and sets tasks/taskGroups",
+    "deleteProject switch path uses hydrateProject for next project data",
+    "exportSingleProject uses hydrateProject to get complete project data for export",
+    "npm run build exits with code 0"
+  ],
+  "verification": [
+    "Run npm run build in /projects/sandbox/ClearMind and confirm exit code 0"
+  ],
+  "blocked_reason": null,
+  "findings": null
+}

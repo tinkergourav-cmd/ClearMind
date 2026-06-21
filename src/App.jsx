@@ -31,6 +31,7 @@ import {
   loadAllProjectIds,
   generateId,
   createDebouncedSaver,
+  hydrateProject,
   saveWorkspaceToFirestore,
   deleteWorkspaceFromFirestore,
   deleteProjectFromFirestore,
@@ -2475,8 +2476,11 @@ export default function WorkflowApp() {
       }
       return updated;
     });
-    // Load target project
-    let targetWorkspaces = target.workspaces || defaultWorkspaces;
+    // Hydrate target project from storage
+    const hydrated = await hydrateProject(targetId);
+    let targetWorkspaces = (hydrated && hydrated.workspaces && hydrated.workspaces.length > 0)
+      ? hydrated.workspaces
+      : defaultWorkspaces;
     targetWorkspaces = targetWorkspaces.map(ws => {
       const grps = ws.groups || [];
       const nds = ws.nodes || [];
@@ -2484,14 +2488,18 @@ export default function WorkflowApp() {
     });
     // Migrate: stamp workspaceId on any objects missing it
     targetWorkspaces = migrateWorkspaceIds(targetWorkspaces);
-    if (import.meta.env.DEV) validateWorkspaces(targetWorkspaces, 'after project switch', normalizeTasks(target.tasks || []));
+    const hydratedTasks = hydrated ? (hydrated.tasks || []) : [];
+    const hydratedTaskGroups = hydrated ? (hydrated.taskGroups || []) : [];
+    if (import.meta.env.DEV) validateWorkspaces(targetWorkspaces, 'after project switch', normalizeTasks(hydratedTasks));
     setActiveProjectId(targetId);
     setWorkspaces(targetWorkspaces);
-    setActiveTab(target.activeTab || (targetWorkspaces.length > 0 ? targetWorkspaces[0].id : ''));
-    setNextId(target.nextId || 10);
-    setReminders(target.reminders || DEFAULT_REMINDERS);
-    setTasks(normalizeTasks(target.tasks || []));
-    const switchedTaskGroups = target.taskGroups || [{ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' }];
+    setActiveTab((hydrated && hydrated.activeTab) || (targetWorkspaces.length > 0 ? targetWorkspaces[0].id : ''));
+    setNextId((hydrated && hydrated.nextId) || 10);
+    setReminders((hydrated && hydrated.reminders) || DEFAULT_REMINDERS);
+    setTasks(normalizeTasks(hydratedTasks));
+    const switchedTaskGroups = hydratedTaskGroups.length > 0
+      ? hydratedTaskGroups
+      : [{ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' }];
     setTaskGroups(switchedTaskGroups.map((g, i) => ({
       ...g,
       color: g.color || GROUP_COLORS[i % GROUP_COLORS.length].id,
@@ -2516,14 +2524,14 @@ export default function WorkflowApp() {
   };
 
   // Passwordless project switch - used by boss key (Ctrl+Shift+/) and default project switch from panel
-  const cycleToProject = (targetId) => {
+  const cycleToProject = async (targetId) => {
     const target = projectsRef.current.find(p => p.id === targetId);
     if (!target) return;
     const { workspaces: currentWs, activeTab: currentTab, nextId: currentNextId } = stateRef.current;
     // Save current project state to per-workspace keys
     setProjects(prev => {
       const updated = prev.map(p => p.id === activeProjectId
-        ? { ...p, workspaces: currentWs, activeTab: currentTab, nextId: currentNextId }
+        ? { ...p, workspaces: currentWs, activeTab: currentTab, nextId: currentNextId, tasks, taskGroups }
         : p
       );
       // Save current workspace data to per-workspace keys
@@ -2533,6 +2541,7 @@ export default function WorkflowApp() {
           groups: ws.groups || [], pins: ws.pins || [], images: ws.images || [], lastModified: Date.now()
         });
       }
+      saveTasks(activeProjectId, { tasks, taskGroups });
       const projMeta = loadProjectMeta(activeProjectId);
       if (projMeta) {
         saveProjectMeta(activeProjectId, { ...projMeta, activeTab: currentTab, nextId: currentNextId, workspaceIds: currentWs.map(ws => ws.id), lastModified: Date.now() });
@@ -2544,6 +2553,7 @@ export default function WorkflowApp() {
         for (const ws of currentWs) {
           firestorePromises.push(saveWorkspaceToFirestore(activeProjectId, ws.id, { id: ws.id, name: ws.name || 'Workspace', nodes: ws.nodes || [], edges: ws.edges || [], groups: ws.groups || [], pins: ws.pins || [], images: ws.images || [], lastModified: Date.now() }));
         }
+        firestorePromises.push(saveTasksToFirestore(activeProjectId, { tasks, taskGroups }));
         if (projMeta) firestorePromises.push(saveProjectToFirestore(activeProjectId, { ...projMeta, activeTab: currentTab, nextId: currentNextId, workspaceIds: currentWs.map(ws => ws.id), lastModified: Date.now() }));
         Promise.all(firestorePromises)
           .then((results) => setSyncStatus(results.every(Boolean) ? 'synced' : 'error'))
@@ -2551,8 +2561,11 @@ export default function WorkflowApp() {
       }
       return updated;
     });
-    // Load target project
-    let targetWorkspaces = target.workspaces || defaultWorkspaces;
+    // Hydrate target project from storage
+    const hydrated = await hydrateProject(targetId);
+    let targetWorkspaces = (hydrated && hydrated.workspaces && hydrated.workspaces.length > 0)
+      ? hydrated.workspaces
+      : defaultWorkspaces;
     targetWorkspaces = targetWorkspaces.map(ws => {
       const grps = ws.groups || [];
       const nds = ws.nodes || [];
@@ -2560,13 +2573,23 @@ export default function WorkflowApp() {
     });
     // Migrate: stamp workspaceId on any objects missing it
     targetWorkspaces = migrateWorkspaceIds(targetWorkspaces);
-    if (import.meta.env.DEV) validateWorkspaces(targetWorkspaces, 'after project delete/switch', normalizeTasks(target.tasks || []));
+    const hydratedTasks = hydrated ? (hydrated.tasks || []) : [];
+    const hydratedTaskGroups = hydrated ? (hydrated.taskGroups || []) : [];
+    if (import.meta.env.DEV) validateWorkspaces(targetWorkspaces, 'after project cycle', normalizeTasks(hydratedTasks));
     const isDefault = target.id === defaultProjectId;
     setActiveProjectId(targetId);
     setWorkspaces(targetWorkspaces);
-    setActiveTab(target.activeTab || (targetWorkspaces.length > 0 ? targetWorkspaces[0].id : ''));
-    setNextId(target.nextId || 10);
-    setReminders(target.reminders || DEFAULT_REMINDERS);
+    setActiveTab((hydrated && hydrated.activeTab) || (targetWorkspaces.length > 0 ? targetWorkspaces[0].id : ''));
+    setNextId((hydrated && hydrated.nextId) || 10);
+    setReminders((hydrated && hydrated.reminders) || DEFAULT_REMINDERS);
+    setTasks(normalizeTasks(hydratedTasks));
+    const cycledTaskGroups = hydratedTaskGroups.length > 0
+      ? hydratedTaskGroups
+      : [{ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' }];
+    setTaskGroups(cycledTaskGroups.map((g, i) => ({
+      ...g,
+      color: g.color || GROUP_COLORS[i % GROUP_COLORS.length].id,
+    })));
     // Default project is always password-free
     if (isDefault) {
       setStoredPassword('');
@@ -2730,10 +2753,14 @@ export default function WorkflowApp() {
   };
 
   // Export a single project as JSON
-  const exportSingleProject = (targetId) => {
+  const exportSingleProject = async (targetId) => {
     const target = projects.find(p => p.id === targetId);
     if (!target) return;
-    const exportData = { ...target, password: '' };
+    // Hydrate project from storage to get complete workspace and task data
+    const hydrated = await hydrateProject(targetId);
+    const exportData = hydrated
+      ? { ...hydrated, password: '' }
+      : { ...target, password: '' };
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2841,8 +2868,12 @@ export default function WorkflowApp() {
     // If deleting active project, switch to first available
     if (targetId === activeProjectId) {
       const next = updated[0];
+      // Hydrate next project from storage
+      const hydrated = await hydrateProject(next.id);
       setActiveProjectId(next.id);
-      let nextWorkspaces = next.workspaces || defaultWorkspaces;
+      let nextWorkspaces = (hydrated && hydrated.workspaces && hydrated.workspaces.length > 0)
+        ? hydrated.workspaces
+        : defaultWorkspaces;
       nextWorkspaces = nextWorkspaces.map(ws => {
         const grps = ws.groups || [];
         const nds = ws.nodes || [];
@@ -2850,10 +2881,20 @@ export default function WorkflowApp() {
       });
       // Migrate: stamp workspaceId on any objects missing it
       nextWorkspaces = migrateWorkspaceIds(nextWorkspaces);
-      if (import.meta.env.DEV) validateWorkspaces(nextWorkspaces, 'after project open', next.tasks || []);
+      const hydratedTasks = hydrated ? (hydrated.tasks || []) : [];
+      const hydratedTaskGroups = hydrated ? (hydrated.taskGroups || []) : [];
+      if (import.meta.env.DEV) validateWorkspaces(nextWorkspaces, 'after project delete/switch', normalizeTasks(hydratedTasks));
       setWorkspaces(nextWorkspaces);
-      setActiveTab(next.activeTab || (nextWorkspaces.length > 0 ? nextWorkspaces[0].id : ''));
-      setNextId(next.nextId || 10);
+      setActiveTab((hydrated && hydrated.activeTab) || (nextWorkspaces.length > 0 ? nextWorkspaces[0].id : ''));
+      setNextId((hydrated && hydrated.nextId) || 10);
+      setTasks(normalizeTasks(hydratedTasks));
+      const nextTaskGroups = hydratedTaskGroups.length > 0
+        ? hydratedTaskGroups
+        : [{ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' }];
+      setTaskGroups(nextTaskGroups.map((g, i) => ({
+        ...g,
+        color: g.color || GROUP_COLORS[i % GROUP_COLORS.length].id,
+      })));
       setStoredPassword(next.password || '');
       setPasswordEnabled(!!next.password);
       setIsAuthenticated(false);
