@@ -2,40 +2,9 @@
 // Persistence Service - Per-Workspace Storage & Firestore Subcollection API
 // =============================================================================
 // This module implements:
-// - Per-workspace localStorage schema (replaces monolithic nexus-app-state blob)
-// - Migration logic from old blob format to new per-workspace keys
+// - Per-workspace localStorage schema (cm-meta, cm-proj-*, cm-ws-*, cm-tasks-*)
 // - Firestore subcollection-based read/write functions
 // - Debounced save helpers for App.jsx integration
-// =============================================================================
-//
-// MIGRATION LIFECYCLE
-// -------------------
-// The migration from the monolithic nexus-app-state blob to per-workspace keys
-// follows this lifecycle:
-//
-// 1. DETECTION: On app init, detectMigrationNeeded() checks for the presence of
-//    the legacy nexus-app-state key and the absence of cm-migration-status with
-//    status "completed". If migration is needed, it returns { needed: true }.
-//
-// 2. EXECUTION: migrateFromBlobToPerWorkspace() reads the old blob, splits it
-//    into per-workspace localStorage keys (cm-meta, cm-proj-*, cm-ws-*, cm-tasks-*),
-//    and writes them. The original nexus-app-state key is preserved (not deleted)
-//    to allow rollback.
-//
-// 3. VERIFICATION: After migration, the app loads via the new cm-* keys. If the
-//    load succeeds and the user continues normal operation, the migration is
-//    considered verified.
-//
-// 4. COMPLETION: The cm-migration-status key records { status: "completed",
-//    migratedAt: timestamp }. Once completed, the migration path is skipped on
-//    subsequent loads.
-//
-// ROLLBACK WINDOW: The nexus-app-state blob is retained for 7 days after
-// migration completes. During this window, rollbackMigration() can clear all
-// cm-* keys and reset cm-migration-status, allowing the app to fall back to
-// the original blob on the next load. After 7 days, the blob may be cleaned up
-// by a future maintenance pass.
-//
 // =============================================================================
 
 import { collection, doc, setDoc, getDoc, getDocs, deleteDoc } from 'firebase/firestore';
@@ -57,20 +26,8 @@ const KEY_WORKSPACE_PREFIX = 'cm-ws-';
 /** Tasks key pattern: cm-tasks-{projectId} */
 const KEY_TASKS_PREFIX = 'cm-tasks-';
 
-/** Migration status key */
-const KEY_MIGRATION_STATUS = 'cm-migration-status';
-
-/** Schema version for the new per-workspace format */
+/** Schema version for the per-workspace format */
 const SCHEMA_VERSION = 2;
-
-/** Legacy key for the old monolithic blob */
-const LEGACY_KEY = 'nexus-app-state';
-
-/** Legacy key for active project */
-const LEGACY_ACTIVE_KEY = 'nexus-active-project';
-
-/** Legacy key for default project */
-const LEGACY_DEFAULT_KEY = 'nexus-default-project';
 
 // =============================================================================
 // ID GENERATION
@@ -78,8 +35,6 @@ const LEGACY_DEFAULT_KEY = 'nexus-default-project';
 
 /**
  * Generate a unique ID using crypto.randomUUID() with fallback.
- * Replaces Date.now()-based IDs for new entities going forward.
- * Existing IDs are preserved during migration - this is only for new creations.
  * @returns {string} A UUID-like string
  */
 export function generateId() {
@@ -92,260 +47,6 @@ export function generateId() {
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
-}
-
-// =============================================================================
-// MIGRATION DETECTION
-// =============================================================================
-
-/**
- * Detect whether migration from the old blob format is needed.
- * Checks if nexus-app-state exists and cm-migration-status is not 'completed'.
- * @returns {{ needed: boolean, reason: string }}
- */
-export function detectMigrationNeeded() {
-  const hasLegacyData = localStorage.getItem(LEGACY_KEY) !== null;
-  const migrationStatus = localStorage.getItem(KEY_MIGRATION_STATUS);
-
-  if (!hasLegacyData) {
-    return { needed: false, reason: 'No legacy nexus-app-state data found' };
-  }
-
-  if (migrationStatus) {
-    try {
-      const status = JSON.parse(migrationStatus);
-      if (status.status === 'completed') {
-        return { needed: false, reason: 'Migration already completed' };
-      }
-      return { needed: true, reason: `Migration status is "${status.status}" - needs retry` };
-    } catch {
-      return { needed: true, reason: 'Migration status is corrupt - needs retry' };
-    }
-  }
-
-  return { needed: true, reason: 'Legacy data exists but no migration has been performed' };
-}
-
-// =============================================================================
-// MIGRATION EXECUTION
-// =============================================================================
-
-/**
- * Migrate from the monolithic nexus-app-state blob to per-workspace localStorage keys.
- * 
- * This function is idempotent - if interrupted, detectMigrationNeeded() will return true
- * and the next load will retry the migration.
- * 
- * Does NOT delete nexus-app-state (kept for 7-day rollback window).
- * 
- * localStorage size validation: logs a warning if total estimated size exceeds 4MB.
- * 
- * @returns {{ success: boolean, projectCount: number, workspaceCount: number, errors: string[] }}
- */
-export function migrateFromBlobToPerWorkspace() {
-  const errors = [];
-  let projectCount = 0;
-  let workspaceCount = 0;
-  const startedAt = Date.now();
-
-  try {
-    // Read legacy blob
-    const rawBlob = localStorage.getItem(LEGACY_KEY);
-    if (!rawBlob) {
-      return { success: false, projectCount: 0, workspaceCount: 0, errors: ['nexus-app-state not found'] };
-    }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(rawBlob);
-    } catch (e) {
-      return { success: false, projectCount: 0, workspaceCount: 0, errors: ['Failed to parse nexus-app-state: ' + e.message] };
-    }
-
-    const projects = Array.isArray(parsed) ? parsed : (parsed.projects || []);
-
-    // Set migration status to in-progress
-    try {
-      localStorage.setItem(KEY_MIGRATION_STATUS, JSON.stringify({
-        status: 'in-progress',
-        startedAt
-      }));
-    } catch (quotaErr) {
-      // Cannot even write status - abort immediately
-      return { success: false, projectCount: 0, workspaceCount: 0, errors: ['QuotaExceededError: Cannot write migration status - localStorage is full'] };
-    }
-
-    // Helper to safely write to localStorage, aborting on quota errors
-    function safeSetItem(key, value) {
-      try {
-        localStorage.setItem(key, value);
-        return true;
-      } catch (e) {
-        if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
-          throw e; // Re-throw quota errors to abort migration
-        }
-        throw e; // Re-throw other errors too
-      }
-    }
-
-    // Migrate each project
-    for (const project of projects) {
-      try {
-        const projectId = project.id;
-        if (!projectId) {
-          errors.push('Skipped project with no id');
-          continue;
-        }
-
-        const workspaces = project.workspaces || [];
-        const workspaceIds = workspaces.map(ws => ws.id);
-
-        // Write project metadata
-        const projectMeta = {
-          id: projectId,
-          name: project.name || 'Untitled',
-          description: project.description || '',
-          password: project.password || null,
-          thumbnail: project.thumbnail || null,
-          lastModified: project.lastModified || Date.now(),
-          activeTab: project.activeTab || 0,
-          nextId: project.nextId || 1,
-          reminders: project.reminders || [],
-          workspaceIds,
-          schemaVersion: SCHEMA_VERSION
-        };
-        safeSetItem(KEY_PROJECT_PREFIX + projectId, JSON.stringify(projectMeta));
-        projectCount++;
-
-        // Write each workspace
-        for (const ws of workspaces) {
-          try {
-            const wsId = ws.id;
-            if (!wsId) {
-              errors.push(`Skipped workspace with no id in project ${projectId}`);
-              continue;
-            }
-
-            const wsData = {
-              id: wsId,
-              name: ws.name || 'Workspace',
-              nodes: ws.nodes || [],
-              edges: ws.edges || [],
-              groups: ws.groups || [],
-              pins: ws.pins || [],
-              images: ws.images || [],
-              lastModified: ws.lastModified || Date.now()
-            };
-            safeSetItem(KEY_WORKSPACE_PREFIX + projectId + '-' + wsId, JSON.stringify(wsData));
-            workspaceCount++;
-          } catch (wsErr) {
-            if (wsErr.name === 'QuotaExceededError' || wsErr.code === 22 || wsErr.code === 1014) {
-              throw wsErr; // Propagate quota errors to abort
-            }
-            errors.push(`Failed to write workspace ${ws.id} in project ${projectId}: ${wsErr.message}`);
-          }
-        }
-
-        // Write tasks for this project
-        try {
-          const tasksData = {
-            tasks: project.tasks || [],
-            taskGroups: project.taskGroups || []
-          };
-          safeSetItem(KEY_TASKS_PREFIX + projectId, JSON.stringify(tasksData));
-        } catch (taskErr) {
-          if (taskErr.name === 'QuotaExceededError' || taskErr.code === 22 || taskErr.code === 1014) {
-            throw taskErr; // Propagate quota errors to abort
-          }
-          errors.push(`Failed to write tasks for project ${projectId}: ${taskErr.message}`);
-        }
-      } catch (projErr) {
-        if (projErr.name === 'QuotaExceededError' || projErr.code === 22 || projErr.code === 1014) {
-          // Quota exceeded - abort migration and reset status to failed
-          try {
-            localStorage.setItem(KEY_MIGRATION_STATUS, JSON.stringify({
-              status: 'failed',
-              startedAt,
-              failedAt: Date.now(),
-              reason: 'QuotaExceededError'
-            }));
-          } catch { /* Cannot even write status - nothing more we can do */ }
-          errors.push(`Migration aborted: localStorage quota exceeded while writing project ${project.id || 'unknown'}`);
-          return { success: false, projectCount, workspaceCount, errors };
-        }
-        errors.push(`Failed to migrate project ${project.id || 'unknown'}: ${projErr.message}`);
-      }
-    }
-
-    // Write meta
-    const activeProjectId = localStorage.getItem(LEGACY_ACTIVE_KEY) || (projects[0] && projects[0].id) || null;
-    const defaultProjectId = localStorage.getItem(LEGACY_DEFAULT_KEY) || activeProjectId;
-
-    try {
-      safeSetItem(KEY_META, JSON.stringify({
-        activeProjectId,
-        defaultProjectId,
-        schemaVersion: SCHEMA_VERSION
-      }));
-
-      // Mark migration complete
-      safeSetItem(KEY_MIGRATION_STATUS, JSON.stringify({
-        status: 'completed',
-        startedAt,
-        completedAt: Date.now()
-      }));
-    } catch (quotaErr) {
-      // Quota exceeded writing meta/status - mark failed
-      try {
-        localStorage.setItem(KEY_MIGRATION_STATUS, JSON.stringify({
-          status: 'failed',
-          startedAt,
-          failedAt: Date.now(),
-          reason: 'QuotaExceededError during finalization'
-        }));
-      } catch { /* Cannot write status */ }
-      errors.push('Migration aborted: localStorage quota exceeded while writing meta/status');
-      return { success: false, projectCount, workspaceCount, errors };
-    }
-
-    // localStorage size validation - warn if exceeding 4MB
-    let totalSize = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('cm-')) {
-        totalSize += (localStorage.getItem(key) || '').length;
-      }
-    }
-    if (totalSize > 4 * 1024 * 1024) {
-      console.warn(`[PersistenceService] localStorage usage for cm-* keys exceeds 4MB (${(totalSize / 1024 / 1024).toFixed(2)}MB). Consider pruning old data.`);
-    }
-
-    return { success: true, projectCount, workspaceCount, errors };
-  } catch (err) {
-    errors.push('Migration failed with unexpected error: ' + err.message);
-    return { success: false, projectCount, workspaceCount, errors };
-  }
-}
-
-// =============================================================================
-// ROLLBACK
-// =============================================================================
-
-/**
- * Rollback migration by clearing all cm-* keys and resetting cm-migration-status.
- * The app will fall back to nexus-app-state on next load.
- */
-export function rollbackMigration() {
-  const keysToRemove = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith('cm-')) {
-      keysToRemove.push(key);
-    }
-  }
-  for (const key of keysToRemove) {
-    localStorage.removeItem(key);
-  }
 }
 
 // =============================================================================
@@ -747,14 +448,12 @@ export async function loadUserMeta() {
 
 /**
  * Initialize the persistence layer. Orchestrates the full load sequence:
- * 1. Check migration status; run migration if needed
- * 2. Try loading from Firestore (userMeta -> project -> workspaces -> tasks)
+ * 1. Try loading from Firestore (userMeta -> project -> workspaces -> tasks)
+ * 2. If Firestore data found, hydrate localStorage with it
  * 3. Fall back to localStorage cm-* keys if Firestore fails/unavailable
- * 4. Fall back to nexus-app-state blob as final fallback (backward compat)
+ * 4. If no data exists anywhere, return empty state (caller creates default project)
  * 
  * Memory strategy: Only the active project's workspaces are loaded into memory.
- * NOTE: For projects with 50+ workspaces, consider implementing LRU eviction
- * in a future iteration.
  * 
  * @returns {Promise<{
  *   projects: Map<string, object>,
@@ -763,20 +462,11 @@ export async function loadUserMeta() {
  *   taskGroups: Array,
  *   activeProjectId: string|null,
  *   defaultProjectId: string|null,
- *   source: 'firestore'|'localStorage'|'legacy'
+ *   source: 'firestore'|'localStorage'
  * }>}
  */
 export async function initializePersistence() {
-  // Step 1: Check and run migration if needed
-  const migrationCheck = detectMigrationNeeded();
-  if (migrationCheck.needed) {
-    const result = migrateFromBlobToPerWorkspace();
-    if (!result.success) {
-      console.warn('[PersistenceService] Migration had issues:', result.errors);
-    }
-  }
-
-  // Step 2: Try Firestore first
+  // Step 1: Try Firestore first
   try {
     const userMeta = await loadUserMeta();
     if (userMeta && userMeta.activeProjectId) {
@@ -804,6 +494,14 @@ export async function initializePersistence() {
         const projects = new Map();
         projects.set(activeProjectId, projectMeta);
 
+        // Hydrate localStorage with Firestore data
+        saveMeta({ activeProjectId, defaultProjectId, schemaVersion: SCHEMA_VERSION });
+        saveProjectMeta(activeProjectId, projectMeta);
+        for (const [wsId, wsData] of activeWorkspaces) {
+          saveWorkspace(activeProjectId, wsId, wsData);
+        }
+        saveTasks(activeProjectId, { tasks, taskGroups });
+
         return {
           projects,
           activeWorkspaces,
@@ -819,7 +517,7 @@ export async function initializePersistence() {
     console.warn('[PersistenceService] Firestore load failed, falling back to localStorage:', firestoreErr.message);
   }
 
-  // Step 3: Fall back to localStorage cm-* keys
+  // Step 2: Fall back to localStorage cm-* keys
   const meta = loadMeta();
   if (meta && meta.activeProjectId) {
     const activeProjectId = meta.activeProjectId;
@@ -863,51 +561,7 @@ export async function initializePersistence() {
     };
   }
 
-  // Step 4: Fall back to legacy nexus-app-state blob
-  try {
-    const rawBlob = localStorage.getItem(LEGACY_KEY);
-    if (rawBlob) {
-      const parsed = JSON.parse(rawBlob);
-      const projectsArray = Array.isArray(parsed) ? parsed : (parsed.projects || []);
-      const projects = new Map();
-      for (const proj of projectsArray) {
-        if (proj.id) {
-          projects.set(proj.id, proj);
-        }
-      }
-
-      const activeProjectId = localStorage.getItem(LEGACY_ACTIVE_KEY) || (projectsArray[0] && projectsArray[0].id) || null;
-      const defaultProjectId = localStorage.getItem(LEGACY_DEFAULT_KEY) || activeProjectId;
-
-      // Load workspaces from the active project in the blob
-      const activeWorkspaces = new Map();
-      const activeProject = projectsArray.find(p => p.id === activeProjectId);
-      if (activeProject && activeProject.workspaces) {
-        for (const ws of activeProject.workspaces) {
-          if (ws.id) {
-            activeWorkspaces.set(ws.id, ws);
-          }
-        }
-      }
-
-      const tasks = activeProject ? (activeProject.tasks || []) : [];
-      const taskGroups = activeProject ? (activeProject.taskGroups || []) : [];
-
-      return {
-        projects,
-        activeWorkspaces,
-        tasks,
-        taskGroups,
-        activeProjectId,
-        defaultProjectId,
-        source: 'legacy'
-      };
-    }
-  } catch (legacyErr) {
-    console.warn('[PersistenceService] Legacy load failed:', legacyErr.message);
-  }
-
-  // Nothing found - return empty state
+  // Step 3: Nothing found - return empty state
   return {
     projects: new Map(),
     activeWorkspaces: new Map(),
@@ -965,104 +619,4 @@ export function createDebouncedSaver(delayMs) {
   };
 
   return debouncedSave;
-}
-
-// =============================================================================
-// LEGACY FIRESTORE API (deprecated - backward compat only)
-// =============================================================================
-// These functions read/write from the old single-document Firestore format
-// (collection: "appData", document: "main") used before the subcollection
-// migration. They exist solely to support the initialization fallback path
-// that loads existing user data stored in the old schema. New code should use
-// the subcollection API above (saveProjectToFirestore, loadProjectFromFirestore,
-// saveWorkspaceToFirestore, etc.).
-//
-// These will be removed once all users have migrated to the subcollection format.
-// =============================================================================
-
-const LEGACY_FIRESTORE_COLLECTION = 'appData';
-const LEGACY_FIRESTORE_DOC_ID = 'main';
-
-/**
- * @deprecated Use loadProjectFromFirestore / loadAllWorkspacesFromFirestore instead.
- * Load the full projects array from the legacy single-document Firestore format.
- * @returns {Promise<Array|null>}
- */
-export async function loadLegacyProjects() {
-  if (!isFirebaseConfigured() || !db) return null;
-  try {
-    const docRef = doc(db, LEGACY_FIRESTORE_COLLECTION, LEGACY_FIRESTORE_DOC_ID);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      if (data.projects) {
-        return JSON.parse(data.projects);
-      }
-    }
-    return null;
-  } catch (error) {
-    console.warn('[PersistenceService] Error loading legacy projects:', error.message);
-    return null;
-  }
-}
-
-/**
- * @deprecated Use loadUserMeta instead.
- * Load the active project ID from the legacy single-document Firestore format.
- * @returns {Promise<string|null>}
- */
-export async function loadLegacyActiveProject() {
-  if (!isFirebaseConfigured() || !db) return null;
-  try {
-    const docRef = doc(db, LEGACY_FIRESTORE_COLLECTION, LEGACY_FIRESTORE_DOC_ID);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      return docSnap.data().activeProjectId || null;
-    }
-    return null;
-  } catch (error) {
-    console.warn('[PersistenceService] Error loading legacy active project:', error.message);
-    return null;
-  }
-}
-
-/**
- * @deprecated Use loadUserMeta instead.
- * Load the default project ID from the legacy single-document Firestore format.
- * @returns {Promise<string|null>}
- */
-export async function loadLegacyDefaultProject() {
-  if (!isFirebaseConfigured() || !db) return null;
-  try {
-    const docRef = doc(db, LEGACY_FIRESTORE_COLLECTION, LEGACY_FIRESTORE_DOC_ID);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      return docSnap.data().defaultProjectId || null;
-    }
-    return null;
-  } catch (error) {
-    console.warn('[PersistenceService] Error loading legacy default project:', error.message);
-    return null;
-  }
-}
-
-/**
- * @deprecated Use saveProjectToFirestore / saveWorkspaceToFirestore instead.
- * Save the full projects array to the legacy single-document Firestore format.
- * Used only during initialization when local data is newer and needs to sync up.
- * @param {Array} projects
- * @returns {Promise<boolean>}
- */
-export async function saveLegacyProjects(projects) {
-  if (!isFirebaseConfigured() || !db) return false;
-  return guardedFirestoreSave(`${LEGACY_FIRESTORE_COLLECTION}/${LEGACY_FIRESTORE_DOC_ID}`, async () => {
-    try {
-      const docRef = doc(db, LEGACY_FIRESTORE_COLLECTION, LEGACY_FIRESTORE_DOC_ID);
-      await setDoc(docRef, { projects: JSON.stringify(projects) }, { merge: true });
-      return true;
-    } catch (error) {
-      console.warn('[PersistenceService] Error saving legacy projects:', error.message);
-      return false;
-    }
-  });
 }

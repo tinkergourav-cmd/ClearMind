@@ -32,8 +32,6 @@ import {
   loadAllProjectIds,
   generateId,
   createDebouncedSaver,
-  detectMigrationNeeded,
-  migrateFromBlobToPerWorkspace,
   saveWorkspaceToFirestore,
   deleteWorkspaceFromFirestore,
   deleteProjectFromFirestore,
@@ -45,11 +43,7 @@ import {
   loadAllWorkspacesFromFirestore,
   loadTasksFromFirestore,
   saveUserMeta,
-  loadUserMeta,
-  loadLegacyProjects,
-  loadLegacyActiveProject,
-  loadLegacyDefaultProject,
-  saveLegacyProjects
+  loadUserMeta
 } from './persistenceService';
 
 // --- Premium Color Themes (10 colors) ---
@@ -698,26 +692,19 @@ export default function WorkflowApp() {
   useEffect(() => {
     const init = async () => {
       try {
-        // Run migration from blob to per-workspace if needed
-        const migrationCheck = detectMigrationNeeded();
-        if (migrationCheck.needed) {
-          migrateFromBlobToPerWorkspace();
-        }
-
         // Try loading from Firestore first (primary data source)
-        // Priority: new subcollection format -> legacy single-document format -> localStorage
         let firestoreProjects = null;
         let firestoreActiveId = null;
         let firestoreDefaultId = null;
         if (isFirebaseConfigured()) {
           setSyncStatus('syncing');
           try {
-            // First try the new subcollection format (userMeta + project docs + workspace subcollections)
+            // Load from subcollection format (userMeta + project docs + workspace subcollections)
             const userMeta = await loadUserMeta();
             if (userMeta && userMeta.activeProjectId) {
               const projectMeta = await loadProjectFromFirestore(userMeta.activeProjectId);
               if (projectMeta) {
-                // New format exists - load workspaces from subcollections
+                // Load workspaces from subcollections
                 const workspaceIds = projectMeta.workspaceIds || [];
                 const loadedWorkspaces = [];
                 for (const wsId of workspaceIds) {
@@ -755,36 +742,6 @@ export default function WorkflowApp() {
                 }
               }
             }
-
-            // If new format did not yield data, fall back to legacy single-document format
-            if (!firestoreProjects) {
-              firestoreProjects = await loadLegacyProjects();
-              firestoreActiveId = await loadLegacyActiveProject();
-              firestoreDefaultId = await loadLegacyDefaultProject();
-              if (firestoreProjects) {
-                // --- Timestamp comparison: preserve newer local edits ---
-                const localRaw = localStorage.getItem('nexus-app-state');
-                if (localRaw) {
-                  try {
-                    const localProjects = JSON.parse(localRaw);
-                    if (Array.isArray(localProjects) && localProjects.length > 0) {
-                      const getNewestTimestamp = (arr) => arr.reduce((max, p) => Math.max(max, p.lastModified || 0), 0);
-                      const localNewest = getNewestTimestamp(localProjects);
-                      const firestoreNewest = getNewestTimestamp(firestoreProjects);
-                      if (localNewest > firestoreNewest) {
-                        console.info('[Firebase] Local data is newer than cloud data. Keeping local edits and syncing up.');
-                        firestoreProjects = null;
-                        firestoreActiveId = null;
-                        firestoreDefaultId = null;
-                        saveLegacyProjects(localProjects).catch(() => {});
-                      }
-                    }
-                  } catch (parseErr) {
-                    // If localStorage is corrupted, just use Firestore data
-                  }
-                }
-              }
-            }
             setSyncStatus('synced');
           } catch (e) {
             console.warn('[Firebase] Could not load from Firestore, falling back to localStorage:', e);
@@ -792,167 +749,178 @@ export default function WorkflowApp() {
           }
         }
 
-        // Use Firestore data if available, otherwise fall back to localStorage
-        const savedAppState = firestoreProjects ? JSON.stringify(firestoreProjects) : localStorage.getItem('nexus-app-state');
-        const savedActiveProject = firestoreActiveId || localStorage.getItem('nexus-active-project');
+        // Use Firestore data if available, otherwise fall back to localStorage cm-* keys
+        let loadedProjects = null;
+        let loadedActiveId = null;
+        let loadedDefaultId = null;
 
-        if (savedAppState) {
-          // Load from project system
-          const parsedProjects = JSON.parse(savedAppState);
-          if (parsedProjects && Array.isArray(parsedProjects) && parsedProjects.length > 0) {
-            // Migrate any unhashed passwords (short strings that are not 64-char hex)
-            let needsSave = false;
-            const migratedProjects = await Promise.all(parsedProjects.map(async (p) => {
-              if (p.password && !/^[a-f0-9]{64}$/.test(p.password)) {
-                needsSave = true;
-                return { ...p, password: await hashPassword(p.password) };
-              }
-              return p;
-            }));
-
-            // Migrate projects: add missing fields (description, thumbnail, lastModified)
-            let migrationNeeded = false;
-            const fullyMigrated = migratedProjects.map(p => {
-              let updated = p;
-              if (typeof p.description === 'undefined') {
-                updated = { ...updated, description: '' };
-                migrationNeeded = true;
-              }
-              if (typeof p.thumbnail === 'undefined') {
-                updated = { ...updated, thumbnail: null };
-                migrationNeeded = true;
-              }
-              if (typeof p.lastModified === 'undefined') {
-                updated = { ...updated, lastModified: Date.now() };
-                migrationNeeded = true;
-              }
-              return updated;
-            });
-
-            // Persist migrations to per-workspace keys if needed
-            if (needsSave || migrationNeeded) {
-              for (const proj of fullyMigrated) {
-                const wsIds = (proj.workspaces || []).map(ws => ws.id);
-                saveProjectMeta(proj.id, {
-                  id: proj.id, name: proj.name || 'Untitled', description: proj.description || '',
-                  password: proj.password || null, thumbnail: proj.thumbnail || null,
-                  lastModified: proj.lastModified || Date.now(), activeTab: proj.activeTab || wsIds[0] || '',
-                  nextId: proj.nextId || 1, reminders: proj.reminders || [],
-                  workspaceIds: wsIds, schemaVersion: 2
-                });
-                for (const ws of (proj.workspaces || [])) {
-                  saveWorkspaceToLocal(proj.id, ws.id, {
-                    id: ws.id, name: ws.name || 'Workspace', nodes: ws.nodes || [], edges: ws.edges || [],
-                    groups: ws.groups || [], pins: ws.pins || [], images: ws.images || [], lastModified: Date.now()
-                  });
+        if (firestoreProjects) {
+          loadedProjects = firestoreProjects;
+          loadedActiveId = firestoreActiveId;
+          loadedDefaultId = firestoreDefaultId;
+        } else {
+          // Load from localStorage cm-* keys
+          const meta = loadMeta();
+          if (meta && meta.activeProjectId) {
+            const projectIds = loadAllProjectIds();
+            const projectsArray = [];
+            for (const pid of projectIds) {
+              const projMeta = loadProjectMeta(pid);
+              if (projMeta) {
+                // Load workspaces for this project
+                const wsIds = projMeta.workspaceIds || [];
+                const workspaces = [];
+                for (const wsId of wsIds) {
+                  const wsData = loadWorkspaceFromLocal(pid, wsId);
+                  if (wsData) workspaces.push(wsData);
                 }
-                saveTasks(proj.id, { tasks: proj.tasks || [], taskGroups: proj.taskGroups || [] });
+                // Load tasks for this project
+                const tasksData = loadTasks(pid);
+                projectsArray.push({
+                  ...projMeta,
+                  workspaces,
+                  tasks: tasksData ? (tasksData.tasks || []) : [],
+                  taskGroups: tasksData ? (tasksData.taskGroups || []) : []
+                });
               }
             }
-
-            setProjects(fullyMigrated);
-
-            // Load default project ID
-            const savedDefaultId = localStorage.getItem('nexus-default-project');
-            let resolvedDefaultId = savedDefaultId;
-            if (!resolvedDefaultId || !fullyMigrated.find(p => p.id === resolvedDefaultId)) {
-              resolvedDefaultId = fullyMigrated[0].id;
+            if (projectsArray.length > 0) {
+              loadedProjects = projectsArray;
+              loadedActiveId = meta.activeProjectId;
+              loadedDefaultId = meta.defaultProjectId || meta.activeProjectId;
             }
-            setDefaultProjectId(resolvedDefaultId);
+          }
+        }
 
-            // Save meta
-            saveMeta({ activeProjectId: resolvedDefaultId, defaultProjectId: resolvedDefaultId, schemaVersion: 2 });
+        if (loadedProjects && loadedProjects.length > 0) {
+          const parsedProjects = loadedProjects;
 
-            // Always load the default project on page load
-            const activeId = resolvedDefaultId;
-            setActiveProjectId(activeId);
-            const activeProj = fullyMigrated.find(p => p.id === activeId) || fullyMigrated[0];
-            
-            let initialWorkspaces = activeProj.workspaces || defaultWorkspaces;
-            initialWorkspaces = initialWorkspaces.map(ws => {
-              const grps = ws.groups || [];
-              const nds = ws.nodes || [];
-              return { ...ws, groups: computeLayout(grps, nds), nodes: nds, edges: ws.edges || [] };
-            });
-
-            // Migrate: stamp workspaceId on any objects missing it
-            initialWorkspaces = migrateWorkspaceIds(initialWorkspaces);
-            if (import.meta.env.DEV) validateWorkspaces(initialWorkspaces, 'after init migration', activeProj.tasks || []);
-            
-            setWorkspaces(initialWorkspaces);
-            setActiveTab(activeProj.activeTab || (initialWorkspaces.length > 0 ? initialWorkspaces[0].id : ''));
-            setNextId(activeProj.nextId || 10);
-
-            // Load reminder data
-            const loadedReminders = activeProj.reminders || DEFAULT_REMINDERS;
-            setReminders(loadedReminders);
-
-            // Load task data
-            const loadedTasks = activeProj.tasks || [];
-            setTasks(normalizeTasks(loadedTasks));
-            const loadedTaskGroups = activeProj.taskGroups || [{ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' }];
-            const groupsWithColor = loadedTaskGroups.map((g, i) => ({
-              ...g,
-              color: g.color || GROUP_COLORS[i % GROUP_COLORS.length].id,
-            }));
-            if (!groupsWithColor.find(g => g.id === 'inbox')) {
-              groupsWithColor.unshift({ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' });
+          // Migrate any unhashed passwords (short strings that are not 64-char hex)
+          let needsSave = false;
+          const migratedProjects = await Promise.all(parsedProjects.map(async (p) => {
+            if (p.password && !/^[a-f0-9]{64}$/.test(p.password)) {
+              needsSave = true;
+              return { ...p, password: await hashPassword(p.password) };
             }
-            setTaskGroups(groupsWithColor);
-            
-            // Show workspace-open reminder after a short delay
-            setTimeout(() => {
-              const openReminders = loadedReminders.filter(r => r.enabled && r.showOnWorkspaceOpen);
-              if (openReminders.length > 0) {
-                const picked = openReminders[Math.floor(Math.random() * openReminders.length)];
-                setReminderNotificationQueue(q => [...q, { id: picked.id, icon: picked.icon, title: 'Welcome Back', content: picked.content }]);
+            return p;
+          }));
+
+          // Migrate projects: add missing fields (description, thumbnail, lastModified)
+          let migrationNeeded = false;
+          const fullyMigrated = migratedProjects.map(p => {
+            let updated = p;
+            if (typeof p.description === 'undefined') {
+              updated = { ...updated, description: '' };
+              migrationNeeded = true;
+            }
+            if (typeof p.thumbnail === 'undefined') {
+              updated = { ...updated, thumbnail: null };
+              migrationNeeded = true;
+            }
+            if (typeof p.lastModified === 'undefined') {
+              updated = { ...updated, lastModified: Date.now() };
+              migrationNeeded = true;
+            }
+            return updated;
+          });
+
+          // Persist field additions to per-workspace keys if needed
+          if (needsSave || migrationNeeded) {
+            for (const proj of fullyMigrated) {
+              const wsIds = (proj.workspaces || []).map(ws => ws.id);
+              saveProjectMeta(proj.id, {
+                id: proj.id, name: proj.name || 'Untitled', description: proj.description || '',
+                password: proj.password || null, thumbnail: proj.thumbnail || null,
+                lastModified: proj.lastModified || Date.now(), activeTab: proj.activeTab || wsIds[0] || '',
+                nextId: proj.nextId || 1, reminders: proj.reminders || [],
+                workspaceIds: wsIds, schemaVersion: 2
+              });
+              for (const ws of (proj.workspaces || [])) {
+                saveWorkspaceToLocal(proj.id, ws.id, {
+                  id: ws.id, name: ws.name || 'Workspace', nodes: ws.nodes || [], edges: ws.edges || [],
+                  groups: ws.groups || [], pins: ws.pins || [], images: ws.images || [], lastModified: Date.now()
+                });
               }
-            }, 1500);
-            
-            // Default project is always password-free
-            const isDefaultProject = activeProj.id === resolvedDefaultId;
-            if (!isDefaultProject && activeProj.password) {
-              setPasswordEnabled(true);
-              setStoredPassword(activeProj.password);
+              saveTasks(proj.id, { tasks: proj.tasks || [], taskGroups: proj.taskGroups || [] });
             }
-            // Strip password from default project in storage if present
-            const defaultProjIdx = fullyMigrated.findIndex(p => p.id === resolvedDefaultId);
-            if (defaultProjIdx >= 0 && fullyMigrated[defaultProjIdx].password) {
-              fullyMigrated[defaultProjIdx] = { ...fullyMigrated[defaultProjIdx], password: '' };
-              // Save updated project meta without password
-              const projMetaUpdate = loadProjectMeta(resolvedDefaultId);
-              if (projMetaUpdate) {
-                saveProjectMeta(resolvedDefaultId, { ...projMetaUpdate, password: '' });
-              }
+          }
+
+          setProjects(fullyMigrated);
+
+          // Resolve default project ID
+          let resolvedDefaultId = loadedDefaultId;
+          if (!resolvedDefaultId || !fullyMigrated.find(p => p.id === resolvedDefaultId)) {
+            resolvedDefaultId = fullyMigrated[0].id;
+          }
+          setDefaultProjectId(resolvedDefaultId);
+
+          // Save meta
+          saveMeta({ activeProjectId: resolvedDefaultId, defaultProjectId: resolvedDefaultId, schemaVersion: 2 });
+
+          // Always load the default project on page load
+          const activeId = resolvedDefaultId;
+          setActiveProjectId(activeId);
+          const activeProj = fullyMigrated.find(p => p.id === activeId) || fullyMigrated[0];
+          
+          let initialWorkspaces = activeProj.workspaces || defaultWorkspaces;
+          initialWorkspaces = initialWorkspaces.map(ws => {
+            const grps = ws.groups || [];
+            const nds = ws.nodes || [];
+            return { ...ws, groups: computeLayout(grps, nds), nodes: nds, edges: ws.edges || [] };
+          });
+
+          // Migrate: stamp workspaceId on any objects missing it
+          initialWorkspaces = migrateWorkspaceIds(initialWorkspaces);
+          if (import.meta.env.DEV) validateWorkspaces(initialWorkspaces, 'after init migration', activeProj.tasks || []);
+          
+          setWorkspaces(initialWorkspaces);
+          setActiveTab(activeProj.activeTab || (initialWorkspaces.length > 0 ? initialWorkspaces[0].id : ''));
+          setNextId(activeProj.nextId || 10);
+
+          // Load reminder data
+          const loadedReminders = activeProj.reminders || DEFAULT_REMINDERS;
+          setReminders(loadedReminders);
+
+          // Load task data
+          const loadedTasks = activeProj.tasks || [];
+          setTasks(normalizeTasks(loadedTasks));
+          const loadedTaskGroups = activeProj.taskGroups || [{ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' }];
+          const groupsWithColor = loadedTaskGroups.map((g, i) => ({
+            ...g,
+            color: g.color || GROUP_COLORS[i % GROUP_COLORS.length].id,
+          }));
+          if (!groupsWithColor.find(g => g.id === 'inbox')) {
+            groupsWithColor.unshift({ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' });
+          }
+          setTaskGroups(groupsWithColor);
+          
+          // Show workspace-open reminder after a short delay
+          setTimeout(() => {
+            const openReminders = loadedReminders.filter(r => r.enabled && r.showOnWorkspaceOpen);
+            if (openReminders.length > 0) {
+              const picked = openReminders[Math.floor(Math.random() * openReminders.length)];
+              setReminderNotificationQueue(q => [...q, { id: picked.id, icon: picked.icon, title: 'Welcome Back', content: picked.content }]);
+            }
+          }, 1500);
+          
+          // Default project is always password-free
+          const isDefaultProject = activeProj.id === resolvedDefaultId;
+          if (!isDefaultProject && activeProj.password) {
+            setPasswordEnabled(true);
+            setStoredPassword(activeProj.password);
+          }
+          // Strip password from default project in storage if present
+          const defaultProjIdx = fullyMigrated.findIndex(p => p.id === resolvedDefaultId);
+          if (defaultProjIdx >= 0 && fullyMigrated[defaultProjIdx].password) {
+            fullyMigrated[defaultProjIdx] = { ...fullyMigrated[defaultProjIdx], password: '' };
+            // Save updated project meta without password
+            const projMetaUpdate = loadProjectMeta(resolvedDefaultId);
+            if (projMetaUpdate) {
+              saveProjectMeta(resolvedDefaultId, { ...projMetaUpdate, password: '' });
             }
           }
         } else {
-          // Migration from old localStorage keys
-          const savedWs = localStorage.getItem('premium-workspaces');
-          const savedTab = localStorage.getItem('premium-active-tab');
-          const savedCounter = localStorage.getItem('premium-counter');
-
-          let initialWorkspaces = defaultWorkspaces;
-          let initialTab = 'ws-1';
-          let initialNextId = 10;
-
-          if (savedWs) {
-            const parsedWs = JSON.parse(savedWs);
-            if (parsedWs && Array.isArray(parsedWs)) {
-              initialWorkspaces = parsedWs.map(ws => {
-                const grps = ws.groups || [];
-                const nds = ws.nodes || [];
-                return { ...ws, groups: computeLayout(grps, nds), nodes: nds, edges: ws.edges || [] };
-              });
-            }
-          }
-          
-          if (savedTab) initialTab = savedTab;
-          else if (initialWorkspaces.length > 0) initialTab = initialWorkspaces[0].id;
-          
-          if (savedCounter) initialNextId = parseInt(savedCounter, 10) || 10;
-
-          // Build default project from migrated data - default project is always password-free
+          // No data found anywhere - create a default project
           const defaultProject = {
             id: 'proj-default',
             name: 'Default',
@@ -960,26 +928,26 @@ export default function WorkflowApp() {
             description: '',
             thumbnail: null,
             lastModified: Date.now(),
-            workspaces: initialWorkspaces,
-            activeTab: initialTab,
-            nextId: initialNextId
+            workspaces: defaultWorkspaces,
+            activeTab: 'ws-1',
+            nextId: 10
           };
 
           setProjects([defaultProject]);
           setActiveProjectId('proj-default');
           setDefaultProjectId('proj-default');
-          setWorkspaces(initialWorkspaces);
-          setActiveTab(initialTab);
-          setNextId(initialNextId);
+          setWorkspaces(defaultWorkspaces);
+          setActiveTab('ws-1');
+          setNextId(10);
 
-          // Save to per-workspace format and clean up old keys
-          const wsIds = initialWorkspaces.map(ws => ws.id);
+          // Save to per-workspace format
+          const wsIds = defaultWorkspaces.map(ws => ws.id);
           saveProjectMeta('proj-default', {
             id: 'proj-default', name: 'Default', description: '', password: '',
-            thumbnail: null, lastModified: Date.now(), activeTab: initialTab,
-            nextId: initialNextId, reminders: [], workspaceIds: wsIds, schemaVersion: 2
+            thumbnail: null, lastModified: Date.now(), activeTab: 'ws-1',
+            nextId: 10, reminders: [], workspaceIds: wsIds, schemaVersion: 2
           });
-          for (const ws of initialWorkspaces) {
+          for (const ws of defaultWorkspaces) {
             saveWorkspaceToLocal('proj-default', ws.id, {
               id: ws.id, name: ws.name || 'Workspace', nodes: ws.nodes || [], edges: ws.edges || [],
               groups: ws.groups || [], pins: ws.pins || [], images: ws.images || [], lastModified: Date.now()
@@ -987,11 +955,6 @@ export default function WorkflowApp() {
           }
           saveTasks('proj-default', { tasks: [], taskGroups: [] });
           saveMeta({ activeProjectId: 'proj-default', defaultProjectId: 'proj-default', schemaVersion: 2 });
-          localStorage.removeItem('premium-workspaces');
-          localStorage.removeItem('premium-active-tab');
-          localStorage.removeItem('premium-counter');
-          localStorage.removeItem('nexus-password-enabled');
-          localStorage.removeItem('nexus-password');
         }
       } catch (e) {
         const defaultProject = {

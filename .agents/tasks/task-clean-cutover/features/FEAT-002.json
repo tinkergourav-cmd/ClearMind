@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "refactor",
   "description": "Remove all migration logic, rollback support, legacy wrappers, deprecated APIs, and legacy key references from persistenceService.js and App.jsx. Rewrite the initialization flow to use only the new per-workspace schema.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "In src/persistenceService.js: Remove the MIGRATION LIFECYCLE comment block (lines 11-42 approx).",
     "In src/persistenceService.js: Remove constants KEY_MIGRATION_STATUS, LEGACY_KEY ('nexus-app-state'), LEGACY_ACTIVE_KEY ('nexus-active-project'), LEGACY_DEFAULT_KEY ('nexus-default-project').",
