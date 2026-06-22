@@ -170,6 +170,55 @@ export function loadAllProjectIds() {
 }
 
 // =============================================================================
+// LOCAL-ONLY METADATA ENRICHMENT
+// =============================================================================
+
+/**
+ * Enrich a project object with local-only metadata stored in localStorage.
+ *
+ * Firestore intentionally strips certain fields (e.g. password hashes) for
+ * security reasons.  When we construct in-memory project objects from Firestore
+ * data, we must merge back those local-only fields so that the React state
+ * holds a complete picture.
+ *
+ * This function is idempotent: if the project already carries the field, or
+ * localStorage has no entry for it, it returns the project unchanged.
+ *
+ * Current local-only fields:
+ *   - password  (bcrypt-style SHA-256 hash)
+ *
+ * Future local-only fields can be added to LOCAL_ONLY_FIELDS below.
+ *
+ * @param {object} project - A project object (must have an `id` property)
+ * @returns {object} The project enriched with local-only metadata
+ */
+export function enrichProjectWithLocalMetadata(project) {
+  if (!project || !project.id) return project;
+
+  const localMeta = loadProjectMeta(project.id);
+  if (!localMeta) return project;
+
+  // List of fields that exist only in localStorage and never in Firestore.
+  // Extend this array when new local-only fields are introduced.
+  const LOCAL_ONLY_FIELDS = ['password'];
+
+  let enriched = project;
+  for (const field of LOCAL_ONLY_FIELDS) {
+    // Only enrich if the project does not already have a truthy value and
+    // localStorage has one. This avoids overwriting a value that was set
+    // during the current session (e.g. the user just changed password).
+    if (!enriched[field] && localMeta[field]) {
+      if (enriched === project) {
+        enriched = { ...project }; // shallow copy on first mutation
+      }
+      enriched[field] = localMeta[field];
+    }
+  }
+
+  return enriched;
+}
+
+// =============================================================================
 // PROJECT HYDRATION
 // =============================================================================
 

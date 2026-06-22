@@ -32,6 +32,7 @@ import {
   generateId,
   createDebouncedSaver,
   hydrateProject,
+  enrichProjectWithLocalMetadata,
   saveWorkspaceToFirestore,
   deleteWorkspaceFromFirestore,
   deleteProjectFromFirestore,
@@ -802,6 +803,11 @@ export default function WorkflowApp() {
           loadedProjects = firestoreProjects;
           loadedActiveId = firestoreActiveId;
           loadedDefaultId = firestoreDefaultId;
+
+          // === Local-only metadata enrichment ===
+          // Firestore objects intentionally lack local-only fields (e.g. password).
+          // Before migration or React state, merge those fields back from localStorage.
+          loadedProjects = loadedProjects.map(enrichProjectWithLocalMetadata);
         } else {
           // Load from localStorage cm-* keys
           const meta = loadMeta();

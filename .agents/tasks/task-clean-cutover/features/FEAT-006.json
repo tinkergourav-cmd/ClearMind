@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-006",
+  "type": "fix",
+  "description": "Add a dedicated local-only metadata enrichment step to the Firestore initialization path, ensuring passwords (and any future local-only fields) from localStorage are merged into in-memory project objects before they reach React state.",
+  "status": "in_progress",
+  "steps": [
+    "In src/persistenceService.js: Add an enrichProjectWithLocalMetadata(project) function that reads the corresponding localStorage entry and merges local-only fields (password) into the project object.",
+    "In src/App.jsx: After `loadedProjects = firestoreProjects;`, apply the enrichment function to each project in the array so that passwords from localStorage are present in the in-memory objects before migration and setProjects().",
+    "Verify that the password gate initialization (activeProj.password check) will now see the correct value.",
+    "Run npm run build to verify compilation.",
+    "Produce a code-level review classifying all 13 areas requested by the user."
+  ],
+  "acceptance_criteria": [
+    "A reusable enrichProjectWithLocalMetadata function exists in persistenceService.js",
+    "Firestore-sourced projects are enriched with local-only metadata before flowing into React state",
+    "activeProj.password is correctly populated from localStorage for the password gate",
+    "npm run build exits with code 0",
+    "Code-level review covers all 13 areas with classification"
+  ],
+  "verification": [
+    "Run npm run build in /projects/sandbox/ClearMind and confirm exit code 0"
+  ],
+  "blocked_reason": null,
+  "findings": null
+}
