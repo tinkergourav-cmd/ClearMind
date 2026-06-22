@@ -2,13 +2,13 @@
   "id": "FEAT-006",
   "type": "fix",
   "description": "Add a dedicated local-only metadata enrichment step to the Firestore initialization path, ensuring passwords (and any future local-only fields) from localStorage are merged into in-memory project objects before they reach React state.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
-    "In src/persistenceService.js: Add an enrichProjectWithLocalMetadata(project) function that reads the corresponding localStorage entry and merges local-only fields (password) into the project object.",
-    "In src/App.jsx: After `loadedProjects = firestoreProjects;`, apply the enrichment function to each project in the array so that passwords from localStorage are present in the in-memory objects before migration and setProjects().",
-    "Verify that the password gate initialization (activeProj.password check) will now see the correct value.",
-    "Run npm run build to verify compilation.",
-    "Produce a code-level review classifying all 13 areas requested by the user."
+    "In src/persistenceService.js: Added enrichProjectWithLocalMetadata(project) function that reads the corresponding localStorage entry and merges local-only fields (password) into the project object.",
+    "In src/App.jsx: After `loadedProjects = firestoreProjects;`, applied enrichProjectWithLocalMetadata to each project so that passwords from localStorage are present in the in-memory objects before migration and setProjects().",
+    "Verified that the password gate initialization (activeProj.password check) will now see the correct value.",
+    "Ran npm run build to verify compilation - passes cleanly.",
+    "Produced a code-level review classifying all 13 areas requested by the user."
   ],
   "acceptance_criteria": [
     "A reusable enrichProjectWithLocalMetadata function exists in persistenceService.js",
@@ -21,5 +21,5 @@
     "Run npm run build in /projects/sandbox/ClearMind and confirm exit code 0"
   ],
   "blocked_reason": null,
-  "findings": null
+  "findings": "The enrichment function uses a LOCAL_ONLY_FIELDS array pattern that is extensible for future local-only fields. All 13 areas classified as CONFIDENT. Two additional edge cases (localStorage manually cleared, multi-tab) classified as NEEDS MANUAL TEST. The architecture is now: Firestore metadata + localStorage-only metadata -> enriched projects -> React state."
 }
