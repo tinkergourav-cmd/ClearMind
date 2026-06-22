@@ -198,7 +198,10 @@ export async function hydrateProject(projectId) {
   if (!meta) {
     meta = await loadProjectFromFirestore(projectId);
     if (!meta) return null;
-    // Hydrate localStorage for future reads
+    // Hydrate localStorage for future reads.
+    // Note: since loadProjectMeta returned null, there is no existing password
+    // to preserve here. The password field will be absent from Firestore data
+    // (by design), which is correct for a project with no local password set.
     saveProjectMeta(projectId, meta);
   }
 
@@ -629,7 +632,11 @@ export async function initializePersistence() {
           // Hydrate localStorage with ALL project metadata
           saveMeta({ activeProjectId, defaultProjectId, schemaVersion: SCHEMA_VERSION });
           for (const [pid, pmeta] of projects) {
-            saveProjectMeta(pid, pmeta);
+            // Preserve existing localStorage password hash (passwords are stored
+            // only in localStorage and intentionally stripped from Firestore)
+            const existingLocal = loadProjectMeta(pid);
+            const preservedPassword = existingLocal ? existingLocal.password : null;
+            saveProjectMeta(pid, { ...pmeta, password: preservedPassword || pmeta.password || null });
           }
           // Hydrate active project workspace data in localStorage
           for (const [wsId, wsData] of activeWorkspaces) {

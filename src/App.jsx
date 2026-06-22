@@ -770,9 +770,13 @@ export default function WorkflowApp() {
                   // Hydrate localStorage with ALL project metadata from Firestore
                   for (const proj of firestoreProjects) {
                     const wsIds = (proj.workspaces || []).map(ws => ws.id);
+                    // Preserve existing localStorage password hash (passwords are stored
+                    // only in localStorage and intentionally stripped from Firestore)
+                    const existingLocal = loadProjectMeta(proj.id);
+                    const preservedPassword = existingLocal ? existingLocal.password : null;
                     saveProjectMeta(proj.id, {
                       id: proj.id, name: proj.name || 'Untitled', description: proj.description || '',
-                      password: proj.password || null, thumbnail: proj.thumbnail || null,
+                      password: preservedPassword || null, thumbnail: proj.thumbnail || null,
                       lastModified: proj.lastModified || Date.now(), activeTab: proj.activeTab || wsIds[0] || '',
                       nextId: proj.nextId || 1, reminders: proj.reminders || [],
                       workspaceIds: proj.workspaceIds || wsIds, schemaVersion: 2
