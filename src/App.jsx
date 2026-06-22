@@ -872,9 +872,13 @@ export default function WorkflowApp() {
           if (needsSave || migrationNeeded) {
             for (const proj of fullyMigrated) {
               const wsIds = (proj.workspaces || []).map(ws => ws.id);
+              // Preserve existing localStorage password hash if the in-memory
+              // project has no password (e.g. Firestore-sourced data)
+              const existingMeta = loadProjectMeta(proj.id);
+              const resolvedPassword = proj.password || (existingMeta ? existingMeta.password : null) || null;
               saveProjectMeta(proj.id, {
                 id: proj.id, name: proj.name || 'Untitled', description: proj.description || '',
-                password: proj.password || null, thumbnail: proj.thumbnail || null,
+                password: resolvedPassword, thumbnail: proj.thumbnail || null,
                 lastModified: proj.lastModified || Date.now(), activeTab: proj.activeTab || wsIds[0] || '',
                 nextId: proj.nextId || 1, reminders: proj.reminders || [],
                 workspaceIds: wsIds, schemaVersion: 2
