@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-005",
+  "type": "fix",
+  "description": "Preserve localStorage password hashes during Firestore hydration. Fix code paths that overwrite existing localStorage passwords with null/undefined when writing Firestore-sourced project metadata.",
+  "status": "completed",
+  "steps": [
+    "In src/persistenceService.js initializePersistence(): Before saveProjectMeta(pid, pmeta), read existing localStorage entry and preserve its password field.",
+    "In src/App.jsx init hydration loop: Before saveProjectMeta(proj.id, {...}), read existing localStorage entry and preserve its password field instead of using proj.password || null.",
+    "In src/App.jsx migration persist block: Before saveProjectMeta(proj.id, {...}), read existing localStorage entry and preserve its password field.",
+    "Added clarifying comment to hydrateProject() Firestore fallback (already safe by design since localStorage is empty when that branch runs).",
+    "Verified npm run build passes.",
+    "Performed comprehensive code-level review of entire password flow."
+  ],
+  "acceptance_criteria": [
+    "initializePersistence preserves existing localStorage passwords when hydrating from Firestore",
+    "App.jsx init hydration loop preserves existing localStorage passwords when hydrating from Firestore",
+    "App.jsx migration persist block preserves existing localStorage passwords",
+    "hydrateProject Firestore fallback is safe (only runs when no localStorage entry exists)",
+    "npm run build exits with code 0",
+    "Code-level review produced with classification of all password-related areas"
+  ],
+  "verification": [
+    "Run npm run build in /projects/sandbox/ClearMind and confirm exit code 0"
+  ],
+  "blocked_reason": null,
+  "findings": "Found a fourth path (migration persist block in App.jsx) not identified in the original analysis that could also overwrite passwords. All four paths now fixed. hydrateProject Firestore fallback is safe by design (no existing localStorage to overwrite). Full review classified all areas: changeProjectPassword, saveProjectMeta, localStorage autosave, Firestore hydration, switchProject, cycleToProject, deleteProject, export/import, and duplicate are all CONFIDENT. Browser refresh and browser restart classified as NEEDS MANUAL TEST."
+}
