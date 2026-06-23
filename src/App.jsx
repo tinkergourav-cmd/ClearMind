@@ -521,13 +521,10 @@ export default function WorkflowApp() {
 
   // --- Header Notification Indicators ---
   const [isMultiTab, setIsMultiTab] = useState(false);
-  const [isMultiTabSameWorkspace, setIsMultiTabSameWorkspace] = useState(false);
   const [showMultiTabTooltip, setShowMultiTabTooltip] = useState(false);
   const [showExportBreath, setShowExportBreath] = useState(false);
   const exportBreathTimerRef = useRef(null);
   const broadcastChannelRef = useRef(null);
-  const tabIdRef = useRef(Date.now().toString(36) + Math.random().toString(36).slice(2));
-  const otherTabsRef = useRef(new Map());
 
   // --- Password Protection ---
   const [passwordEnabled, setPasswordEnabled] = useState(false);
@@ -1084,158 +1081,93 @@ export default function WorkflowApp() {
   }, [timerNotification]);
 
   // --- Multi-Tab Detection via BroadcastChannel ---
-  //
-  // CHANNEL INVENTORY (all BroadcastChannel instances in this app):
-  //   1. 'thoughtflow-tab-presence' -- our multi-tab detection (this useEffect)
-  //   2. '[Firebase] FID Change'    -- internal to @firebase/installations (not ours)
-  //   There is NO conflict between them; they are independent channels.
-  //
-  // MESSAGE TYPES on 'thoughtflow-tab-presence':
-  //   * { type: 'presence', tabId, projectId, workspaceId }
-  //       - Sent on effect mount and every 4 s (heartbeat).
-  //       - Handler: stores entry in otherTabsRef Map, calls deriveFlags().
-  //   * { type: 'leave', tabId }
-  //       - Sent on beforeunload and during cleanup when deps change.
-  //       - Handler: deletes entry from otherTabsRef Map, calls deriveFlags().
-  //   No other message types exist. Any unknown type is silently ignored (early-return).
-  //
   useEffect(() => {
-    // Guard: Do not create the channel until both values are initialized.
-    if (!activeProjectId || !activeTab) return;
-
+    let channel = null;
+    let heartbeatInterval = null;
+    let tabTimeout = null;
     const CHANNEL_NAME = 'thoughtflow-tab-presence';
 
-    // [EXPERIMENT 3] Only create the BroadcastChannel object. No receiving, no sending, no processing.
-    // This isolates whether the crash is caused by the channel's existence/lifecycle alone.
-    let channel = null;
     try {
       channel = new BroadcastChannel(CHANNEL_NAME);
       broadcastChannelRef.current = channel;
-      console.log('[MultiTab][EXPERIMENT 3] BroadcastChannel created (no handlers, no messages)');
+
+      // When we receive a message from another tab
+      channel.onmessage = (event) => {
+        if (event.data && event.data.type === 'presence') {
+          setIsMultiTab(true);
+          // Reset timeout - if no heartbeat for 10s, assume other tab closed
+          if (tabTimeout) clearTimeout(tabTimeout);
+          tabTimeout = setTimeout(() => setIsMultiTab(false), 10000);
+        } else if (event.data && event.data.type === 'leave') {
+          if (tabTimeout) clearTimeout(tabTimeout);
+          tabTimeout = setTimeout(() => setIsMultiTab(false), 2000);
+        }
+      };
+
+      // Broadcast our presence immediately and on interval
+      channel.postMessage({ type: 'presence' });
+      heartbeatInterval = setInterval(() => {
+        channel.postMessage({ type: 'presence' });
+      }, 4000);
+
+      // Send leave on tab close (beforeunload) so sibling clears warning immediately
+      const handleBeforeUnload = () => {
+        channel.postMessage({ type: 'leave' });
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+
+      return () => {
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        if (tabTimeout) clearTimeout(tabTimeout);
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        if (channel) {
+          channel.postMessage({ type: 'leave' });
+          channel.close();
+        }
+      };
     } catch (e) {
-      console.warn('[MultiTab][EXPERIMENT 3] BroadcastChannel not supported:', e);
+      // BroadcastChannel not supported, fallback to localStorage
+      const storageKey = 'thoughtflow-tab-id';
+      const myId = Date.now() + '-' + Math.random().toString(36).slice(2);
+      
+      const checkOtherTabs = () => {
+        const stored = localStorage.getItem(storageKey);
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (parsed.id !== myId && Date.now() - parsed.timestamp < 10000) {
+              setIsMultiTab(true);
+            } else {
+              setIsMultiTab(false);
+            }
+          } catch {
+            setIsMultiTab(false);
+          }
+        }
+      };
+
+      localStorage.setItem(storageKey, JSON.stringify({ id: myId, timestamp: Date.now() }));
+      heartbeatInterval = setInterval(() => {
+        localStorage.setItem(storageKey, JSON.stringify({ id: myId, timestamp: Date.now() }));
+        checkOtherTabs();
+      }, 4000);
+
+      const handleStorage = (e) => {
+        if (e.key === storageKey) checkOtherTabs();
+      };
+      window.addEventListener('storage', handleStorage);
+      
+      return () => {
+        clearInterval(heartbeatInterval);
+        window.removeEventListener('storage', handleStorage);
+      };
     }
-
-    return () => {
-      if (channel) {
-        channel.close();
-        console.log('[MultiTab][EXPERIMENT 3] BroadcastChannel closed');
-      }
-    };
-
-    // ----- [EXPERIMENT 3] ALL CODE BELOW IS DISABLED -----
-    // The following code is commented out for Experiment 3. It will be restored
-    // once we determine whether simply creating the channel causes the crash.
-    //
-    // let heartbeatInterval = null;
-    // let cleanupInterval = null;
-    // let deriveFlagsTimer = null;
-    // let closed = false;
-    // const myTabId = tabIdRef.current;
-    //
-    // console.log('[MultiTab] Channel creating:', { activeProjectId, activeTab, myTabId });
-    //
-    // otherTabsRef.current.clear();
-    //
-    // const deriveFlagsImmediate = () => {
-    //   let sameProject = false;
-    //   let sameWorkspace = false;
-    //   otherTabsRef.current.forEach((info) => {
-    //     if (info.projectId && info.projectId === activeProjectId) {
-    //       sameProject = true;
-    //       if (info.workspaceId && info.workspaceId === activeTab) {
-    //         sameWorkspace = true;
-    //       }
-    //     }
-    //   });
-    //   console.log('[MultiTab] deriveFlagsImmediate:', { sameProject, sameWorkspace, mapSize: otherTabsRef.current.size });
-    //   setIsMultiTab(sameProject);
-    //   setIsMultiTabSameWorkspace(sameWorkspace);
-    // };
-    //
-    // const deriveFlags = () => {
-    //   if (deriveFlagsTimer) clearTimeout(deriveFlagsTimer);
-    //   deriveFlagsTimer = setTimeout(deriveFlagsImmediate, 200);
-    // };
-    //
-    // deriveFlagsImmediate();
-    //
-    // const safePostMessage = (payload) => {
-    //   if (closed) return;
-    //   try {
-    //     console.log('[MultiTab] Sending:', payload);
-    //     channel.postMessage(payload);
-    //   } catch (err) {
-    //     console.warn('[MultiTab] postMessage failed (channel likely closed):', err);
-    //   }
-    // };
-    //
-    // channel.onmessage = (event) => {
-    //   console.log('[MultiTab receive raw]', event.data);
-    //   try {
-    //     if (!event.data || !event.data.tabId || event.data.tabId === myTabId) return;
-    //     if (event.data.type === 'presence') {
-    //       otherTabsRef.current.set(event.data.tabId, {
-    //         projectId: event.data.projectId,
-    //         workspaceId: event.data.workspaceId,
-    //         lastSeen: Date.now()
-    //       });
-    //       deriveFlags();
-    //     } else if (event.data.type === 'leave') {
-    //       otherTabsRef.current.delete(event.data.tabId);
-    //       deriveFlags();
-    //     }
-    //   } catch (handlerError) {
-    //     console.error('[MultiTab] EXCEPTION inside onmessage handler:', handlerError);
-    //   }
-    // };
-    //
-    // const sendPresence = () => {
-    //   safePostMessage({ type: 'presence', tabId: myTabId, projectId: activeProjectId, workspaceId: activeTab });
-    // };
-    // sendPresence();
-    // deriveFlagsImmediate();
-    // heartbeatInterval = setInterval(sendPresence, 4000);
-    //
-    // cleanupInterval = setInterval(() => {
-    //   const now = Date.now();
-    //   let changed = false;
-    //   otherTabsRef.current.forEach((info, id) => {
-    //     if (now - info.lastSeen > 10000) {
-    //       otherTabsRef.current.delete(id);
-    //       changed = true;
-    //     }
-    //   });
-    //   if (changed) deriveFlags();
-    // }, 5000);
-    //
-    // const handleBeforeUnload = () => {
-    //   safePostMessage({ type: 'leave', tabId: myTabId });
-    // };
-    // window.addEventListener('beforeunload', handleBeforeUnload);
-    //
-    // return () => {
-    //   console.log('[MultiTab] Channel cleanup:', { activeProjectId, activeTab, myTabId });
-    //   closed = true;
-    //   if (heartbeatInterval) clearInterval(heartbeatInterval);
-    //   if (cleanupInterval) clearInterval(cleanupInterval);
-    //   if (deriveFlagsTimer) clearTimeout(deriveFlagsTimer);
-    //   window.removeEventListener('beforeunload', handleBeforeUnload);
-    //   if (channel) {
-    //     try { channel.postMessage({ type: 'leave', tabId: myTabId }); } catch (err) {}
-    //     channel.close();
-    //   }
-    // };
-    //
-    // ----- [EXPERIMENT 3] LOCALSTORAGE FALLBACK ALSO DISABLED -----
-    // (The try block above cannot throw in normal browser environments,
-    //  so the localStorage fallback would never execute anyway.)
-  }, [activeProjectId, activeTab]);
+  }, []);
 
   // Close multi-tab tooltip when the warning clears
   useEffect(() => {
-    if (!isMultiTab && !isMultiTabSameWorkspace) setShowMultiTabTooltip(false);
-  }, [isMultiTab, isMultiTabSameWorkspace]);
+    if (!isMultiTab) setShowMultiTabTooltip(false);
+  }, [isMultiTab]);
 
   // --- Export Reminder Breathing Animation (every 5 minutes) ---
   const exportBreathTimeoutRef = useRef(null);
@@ -5206,14 +5138,9 @@ export default function WorkflowApp() {
     );
   }
 
-  // DIAGNOSTIC: Log render-phase entry point. If "W0 is not a constructor" fires
-  // AFTER this log but BEFORE "MultiTab UI rendering", the crash is somewhere
-  // earlier in the JSX tree. If it fires AFTER "MultiTab UI rendering", the crash
-  // is in the multi-tab warning section itself.
-  console.log('[MultiTab] Render phase entered, flags:', { isMultiTab, isMultiTabSameWorkspace, showMultiTabTooltip });
-
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] font-sans text-slate-800 selection:bg-indigo-100 overflow-hidden">
+      
       {/* --- Top Command Toolbar --- */}
       <header className="h-10 bg-white/50 backdrop-blur-sm border-b border-slate-200/80 flex items-center px-2 sm:px-3 z-50 justify-between shrink-0 gap-1 sm:gap-2 hover:bg-white/90 transition-all duration-300">
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
@@ -5269,7 +5196,7 @@ export default function WorkflowApp() {
         {/* --- Header Notification Indicators --- */}
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Multi-tab warning - conditional, icon-only on xs, full on sm+ */}
-          {(isMultiTab || isMultiTabSameWorkspace) && (
+          {isMultiTab && (
             <div className="relative">
               <div
                 className="flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer"
@@ -5285,10 +5212,7 @@ export default function WorkflowApp() {
               </div>
               {showMultiTabTooltip && (
                 <div className="absolute top-full left-0 mt-1 z-50 w-64 sm:w-72 p-2.5 bg-white border border-amber-200 rounded-lg shadow-lg text-xs text-slate-700 leading-relaxed">
-                  <p className="mb-1">{'\u26A0'} This project is already open in another tab. Task data may be overwritten.</p>
-                  {isMultiTabSameWorkspace && (
-                    <p className="mt-1.5">{'\u26A0'} This workspace is already open in another tab. Changes may overwrite each other.</p>
-                  )}
+                  This canvas is currently open in another tab or window. To reduce the risk of data conflicts, refresh before starting work and export your data before leaving. For best reliability, work in only a single tab at a time and keep just one tab open per device.
                 </div>
               )}
             </div>
