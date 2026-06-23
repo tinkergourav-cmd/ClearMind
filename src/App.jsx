@@ -1134,8 +1134,9 @@ export default function WorkflowApp() {
       // DIAGNOSTIC: Log what we are about to set, so if React crashes during
       // the subsequent render we know exactly which state transition triggered it.
       console.log('[MultiTab] deriveFlagsImmediate:', { sameProject, sameWorkspace, mapSize: otherTabsRef.current.size });
-      setIsMultiTab(sameProject);
-      setIsMultiTabSameWorkspace(sameWorkspace);
+      // [EXPERIMENT 2] State setters disabled to isolate whether the crash is caused by the React state transition path
+      // setIsMultiTab(sameProject);
+      // setIsMultiTabSameWorkspace(sameWorkspace);
     };
 
     // Fix #2: Debounced version of deriveFlags to avoid flashing warnings
@@ -1275,11 +1276,13 @@ export default function WorkflowApp() {
                 }
               }
             });
-            setIsMultiTab(sameProject);
-            setIsMultiTabSameWorkspace(sameWorkspace);
+            // [EXPERIMENT 2] State setters disabled to isolate whether the crash is caused by the React state transition path
+            // setIsMultiTab(sameProject);
+            // setIsMultiTabSameWorkspace(sameWorkspace);
           } catch {
-            setIsMultiTab(false);
-            setIsMultiTabSameWorkspace(false);
+            // [EXPERIMENT 2] State setters disabled to isolate whether the crash is caused by the React state transition path
+            // setIsMultiTab(false);
+            // setIsMultiTabSameWorkspace(false);
           }
         }
       };
@@ -5312,8 +5315,7 @@ export default function WorkflowApp() {
   // AFTER this log but BEFORE "MultiTab UI rendering", the crash is somewhere
   // earlier in the JSX tree. If it fires AFTER "MultiTab UI rendering", the crash
   // is in the multi-tab warning section itself.
-  // [EXPERIMENT 1] Disabled render-phase diagnostic log to isolate crash source
-  // console.log('[MultiTab] Render phase entered, flags:', { isMultiTab, isMultiTabSameWorkspace, showMultiTabTooltip });
+  console.log('[MultiTab] Render phase entered, flags:', { isMultiTab, isMultiTabSameWorkspace, showMultiTabTooltip });
 
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] font-sans text-slate-800 selection:bg-indigo-100 overflow-hidden">
@@ -5372,8 +5374,7 @@ export default function WorkflowApp() {
         {/* --- Header Notification Indicators --- */}
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Multi-tab warning - conditional, icon-only on xs, full on sm+ */}
-          {/* [EXPERIMENT 1] UI disabled to isolate whether crash is caused by warning render or underlying logic */}
-          {false && (isMultiTab || isMultiTabSameWorkspace) && (
+          {(isMultiTab || isMultiTabSameWorkspace) && (
             <div className="relative">
               <div
                 className="flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer"
