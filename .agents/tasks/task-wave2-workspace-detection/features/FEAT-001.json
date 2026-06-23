@@ -30,5 +30,5 @@
     "Run `cd /projects/sandbox/ClearMind && npm install && npm run build` and confirm it completes with exit code 0."
   ],
   "blocked_reason": null,
-  "findings": "Build succeeds cleanly. No test suite to run. The useEffect now has activeProjectId and activeTab in its dependency array, which means it re-creates the BroadcastChannel and sends fresh presence when user switches project or workspace. The otherTabsRef Map persists across re-renders since it is a ref."
+  "findings": "Build succeeds cleanly. No test suite to run. Post-review fixes applied: (1) otherTabsRef.current.clear() at top of useEffect body to prevent stale entries from previous context, (2) deriveFlags() debounced by 200ms to prevent warning flash when sibling tab switches workspace, (3) deriveFlagsImmediate() called after Map clear and after sendPresence() to ensure flags are in a known state. Cleanup functions also clear the debounce timer."
 }
