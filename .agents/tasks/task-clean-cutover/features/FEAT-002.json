@@ -1,0 +1,35 @@
+{
+  "id": "FEAT-002",
+  "type": "refactor",
+  "description": "Remove all migration logic, rollback support, legacy wrappers, deprecated APIs, and legacy key references from persistenceService.js and App.jsx. Rewrite the initialization flow to use only the new per-workspace schema.",
+  "status": "completed",
+  "steps": [
+    "In src/persistenceService.js: Remove the MIGRATION LIFECYCLE comment block (lines 11-42 approx).",
+    "In src/persistenceService.js: Remove constants KEY_MIGRATION_STATUS, LEGACY_KEY ('nexus-app-state'), LEGACY_ACTIVE_KEY ('nexus-active-project'), LEGACY_DEFAULT_KEY ('nexus-default-project').",
+    "In src/persistenceService.js: Remove the entire MIGRATION DETECTION section (detectMigrationNeeded function).",
+    "In src/persistenceService.js: Remove the entire MIGRATION EXECUTION section (migrateFromBlobToPerWorkspace function).",
+    "In src/persistenceService.js: Remove the entire ROLLBACK section (rollbackMigration function).",
+    "In src/persistenceService.js: Remove the entire LEGACY FIRESTORE API section at the bottom (LEGACY_FIRESTORE_COLLECTION, LEGACY_FIRESTORE_DOC_ID constants, loadLegacyProjects, loadLegacyActiveProject, loadLegacyDefaultProject, saveLegacyProjects functions).",
+    "In src/persistenceService.js: Rewrite the initializePersistence() function to follow the new initialization order: (1) Load from Firestore (userMeta -> project -> workspaces -> tasks), (2) If Firestore data found, hydrate localStorage with it, (3) Fall back to localStorage cm-* keys if Firestore unavailable, (4) If no data exists anywhere, return empty state (caller creates default project). Remove the migration detection/execution at the start, remove the legacy nexus-app-state blob fallback (Step 4), and remove references to LEGACY_KEY, LEGACY_ACTIVE_KEY, LEGACY_DEFAULT_KEY.",
+    "In src/persistenceService.js: Update the module header comment to reflect only the new architecture (per-workspace localStorage + Firestore subcollection API + debounced save helpers). Remove mentions of migration logic.",
+    "In src/App.jsx: Remove imports of detectMigrationNeeded, migrateFromBlobToPerWorkspace, loadLegacyProjects, loadLegacyActiveProject, loadLegacyDefaultProject, saveLegacyProjects from './persistenceService'.",
+    "In src/App.jsx: In the initialization useEffect (starting around line 718), rewrite the init function to: (1) Try loading from Firestore new subcollection format (userMeta + project docs + workspace subcollections). If found, use it. (2) Fall back to localStorage cm-* keys (loadMeta, loadProjectMeta, loadWorkspace, loadTasks). (3) If no data found, create a default project. Remove ALL references to: detectMigrationNeeded(), migrateFromBlobToPerWorkspace(), loadLegacyProjects(), loadLegacyActiveProject(), loadLegacyDefaultProject(), saveLegacyProjects(), localStorage.getItem('nexus-app-state'), localStorage.getItem('nexus-active-project'), localStorage.getItem('nexus-default-project'), localStorage.removeItem('nexus-password-enabled'), localStorage.removeItem('nexus-password'), localStorage.getItem/removeItem('premium-workspaces'), localStorage.getItem/removeItem('premium-active-tab'), localStorage.getItem/removeItem('premium-counter').",
+    "In src/App.jsx: Keep the existing auto-save effects (workspace, task, metadata debounced savers) unchanged since they already use the new schema.",
+    "Verify that no remaining code references nexus-app-state, nexus-active-project, nexus-default-project, appData/main, cm-migration-status, or any migration/rollback/legacy function."
+  ],
+  "acceptance_criteria": [
+    "`npm run build` succeeds with exit code 0 after all changes",
+    "grep for 'nexus-app-state', 'nexus-active-project', 'nexus-default-project', 'appData', 'cm-migration-status', 'detectMigrationNeeded', 'migrateFromBlobToPerWorkspace', 'rollbackMigration', 'loadLegacyProjects', 'loadLegacyActiveProject', 'loadLegacyDefaultProject', 'saveLegacyProjects', 'premium-workspaces', 'premium-active-tab', 'premium-counter' returns no results in src/",
+    "The only localStorage keys referenced are: cm-meta, cm-proj-{id}, cm-ws-{projId}-{wsId}, cm-tasks-{projId}",
+    "The only Firestore paths referenced are: projects/{projectId}, projects/{projectId}/workspaces/{workspaceId}, projects/{projectId}/tasks/taskData, userMeta/main",
+    "Initialization order is: (1) Firestore load, (2) hydrate localStorage if needed, (3) fallback to localStorage cm-* keys, (4) create default project if nothing found",
+    "Changes are committed to the local branch"
+  ],
+  "verification": [
+    "Run `npm run build` in /projects/sandbox/ClearMind and confirm exit code 0",
+    "Run `grep -rn 'nexus-app-state\\|nexus-active-project\\|nexus-default-project\\|appData\\|cm-migration-status\\|detectMigrationNeeded\\|migrateFromBlobToPerWorkspace\\|rollbackMigration\\|loadLegacyProjects\\|saveLegacyProjects\\|premium-workspaces\\|premium-active-tab\\|premium-counter' src/` and confirm no output",
+    "Confirm git log shows a new commit with the cleanup changes"
+  ],
+  "blocked_reason": null,
+  "findings": "Build passes cleanly. All legacy references removed from src/. No test suite exists so verification limited to build success. The persistenceService.js went from 1069 lines to ~399 lines. App.jsx init useEffect was rewritten to only use Firestore subcollections and cm-* localStorage keys."
+}

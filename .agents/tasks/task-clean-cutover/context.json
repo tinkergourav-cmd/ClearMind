@@ -1,0 +1,21 @@
+{
+  "project_type": "React + Vite SPA with Firebase Firestore integration",
+  "language": "JavaScript (JSX)",
+  "build_system": "Vite (npm)",
+  "test_framework": "None (no test files present)",
+  "build_command": "npm run build",
+  "test_command": null,
+  "verification_instructions": "Run npm install && npm run build to verify the application compiles cleanly with no errors.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "cd /projects/sandbox/ClearMind && npm install",
+  "environment_constraints": "No test suite exists. Verification is limited to build success.",
+  "contribution_requirements": "Commit changes to local branch after cleanup. Do NOT push.",
+  "key_patterns": "persistenceService.js exports functions used by App.jsx. App.jsx imports specific named exports. The new architecture uses: cm-meta, cm-proj-{id}, cm-ws-{projId}-{wsId}, cm-tasks-{projId} in localStorage and projects/{projectId}, projects/{projectId}/workspaces/{workspaceId}, projects/{projectId}/tasks/taskData, userMeta/main in Firestore.",
+  "relevant_files": [
+    "src/persistenceService.js",
+    "src/App.jsx",
+    "src/firebase.js",
+    "src/workspaceValidator.js"
+  ],
+  "directory_structure": "Single src/ directory with all components (JSX) and services (JS). No subdirectories for modules. Config at root (vite.config.js, tailwind.config.js, postcss.config.js)."
+}
