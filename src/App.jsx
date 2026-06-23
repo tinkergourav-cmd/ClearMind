@@ -1126,14 +1126,6 @@ export default function WorkflowApp() {
         } else if (data.type === 'leave') {
           peers.delete(data.tabId);
           evaluateConflict();
-        } else if (data.type === 'switch') {
-          // Peer switched workspace - update their record
-          peers.set(data.tabId, {
-            projectId: data.projectId,
-            workspaceId: data.workspaceId,
-            lastSeen: Date.now()
-          });
-          evaluateConflict();
         }
       };
 
@@ -1169,8 +1161,8 @@ export default function WorkflowApp() {
         if (peerTimeoutInterval) clearInterval(peerTimeoutInterval);
         window.removeEventListener('beforeunload', handleBeforeUnload);
         if (channel) {
-          // Broadcast switch so other tabs know we left this workspace
-          channel.postMessage({ type: 'switch', tabId: myTabId, projectId: activeProjectId, workspaceId: activeTab });
+          // Broadcast leave so other tabs know we left this workspace
+          channel.postMessage({ type: 'leave', tabId: myTabId });
           channel.close();
         }
         broadcastChannelRef.current = null;
@@ -1226,9 +1218,18 @@ export default function WorkflowApp() {
       };
       window.addEventListener('storage', handleStorage);
 
+      // Remove our entry on tab close for instant departure
+      const handleBeforeUnload = () => {
+        const registry = getRegistry();
+        delete registry[myTabId];
+        localStorage.setItem(storageKey, JSON.stringify(registry));
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+
       return () => {
         clearInterval(heartbeatInterval);
         window.removeEventListener('storage', handleStorage);
+        window.removeEventListener('beforeunload', handleBeforeUnload);
         // Remove our entry on cleanup
         const registry = getRegistry();
         delete registry[myTabId];
