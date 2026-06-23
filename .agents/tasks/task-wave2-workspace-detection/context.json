@@ -1,0 +1,18 @@
+{
+  "project_type": "React SPA with Vite bundler",
+  "language": "JavaScript (JSX)",
+  "build_system": "npm + Vite",
+  "test_framework": "None (no test framework configured)",
+  "build_command": "npm run build",
+  "test_command": "N/A - no test suite exists",
+  "verification_instructions": "1. Run npm install to restore dependencies. 2. Run npm run build to verify the app compiles without errors.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "cd /projects/sandbox/ClearMind && npm install",
+  "environment_constraints": "No test suite exists. Verification is limited to successful build (npm run build). No Docker needed.",
+  "contribution_requirements": "None documented. Single-branch repo (main).",
+  "key_patterns": "Single monolithic component (WorkflowApp) in App.jsx (~7009 lines). All state is React useState/useRef hooks at the top of the component. BroadcastChannel is used for multi-tab detection in a useEffect block at lines 1083-1165. UI rendering for the multi-tab warning is at lines 5195-5225. activeProjectId = current project, activeTab = current workspace ID (e.g. 'ws-1'). TailwindCSS for styling. lucide-react for icons.",
+  "relevant_files": [
+    "src/App.jsx"
+  ],
+  "directory_structure": "src/ - all source code. src/App.jsx - main 7009-line component with all logic. src/persistenceService.js - localStorage/Firestore persistence. public/ - static assets."
+}
