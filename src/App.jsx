@@ -5312,7 +5312,8 @@ export default function WorkflowApp() {
   // AFTER this log but BEFORE "MultiTab UI rendering", the crash is somewhere
   // earlier in the JSX tree. If it fires AFTER "MultiTab UI rendering", the crash
   // is in the multi-tab warning section itself.
-  console.log('[MultiTab] Render phase entered, flags:', { isMultiTab, isMultiTabSameWorkspace, showMultiTabTooltip });
+  // [EXPERIMENT 1] Disabled render-phase diagnostic log to isolate crash source
+  // console.log('[MultiTab] Render phase entered, flags:', { isMultiTab, isMultiTabSameWorkspace, showMultiTabTooltip });
 
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] font-sans text-slate-800 selection:bg-indigo-100 overflow-hidden">
@@ -5371,7 +5372,8 @@ export default function WorkflowApp() {
         {/* --- Header Notification Indicators --- */}
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Multi-tab warning - conditional, icon-only on xs, full on sm+ */}
-          {(isMultiTab || isMultiTabSameWorkspace) && (
+          {/* [EXPERIMENT 1] UI disabled to isolate whether crash is caused by warning render or underlying logic */}
+          {false && (isMultiTab || isMultiTabSameWorkspace) && (
             <div className="relative">
               <div
                 className="flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer"
