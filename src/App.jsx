@@ -1085,12 +1085,22 @@ export default function WorkflowApp() {
 
   // --- Multi-Tab Detection via BroadcastChannel ---
   useEffect(() => {
+    // Guard: Do not create the channel until both values are initialized.
+    // activeProjectId and activeTab start as '' and are set after initialization.
+    // Without this guard the effect runs with empty values, then re-runs when
+    // they are populated, causing rapid channel close/reopen cycles that can
+    // trigger postMessage on a closed channel (TypeError / InvalidStateError).
+    if (!activeProjectId || !activeTab) return;
+
     let channel = null;
     let heartbeatInterval = null;
     let cleanupInterval = null;
     let deriveFlagsTimer = null;
+    let closed = false; // tracks whether cleanup has run
     const CHANNEL_NAME = 'thoughtflow-tab-presence';
     const myTabId = tabIdRef.current;
+
+    console.log('[MultiTab] Channel creating:', { activeProjectId, activeTab, myTabId });
 
     // Fix #1: Clear stale entries from previous project/workspace context
     otherTabsRef.current.clear();
@@ -1120,12 +1130,26 @@ export default function WorkflowApp() {
     // Fix #3: Derive flags immediately after clearing the Map to reset to known state
     deriveFlagsImmediate();
 
+    // Safe postMessage wrapper: prevents posting on a closed channel which
+    // throws InvalidStateError and can manifest as "W0 is not a constructor"
+    // in minified Vite builds.
+    const safePostMessage = (payload) => {
+      if (closed) return;
+      try {
+        console.log('[MultiTab] Sending:', payload);
+        channel.postMessage(payload);
+      } catch (err) {
+        console.warn('[MultiTab] postMessage failed (channel likely closed):', err);
+      }
+    };
+
     try {
       channel = new BroadcastChannel(CHANNEL_NAME);
       broadcastChannelRef.current = channel;
 
       // When we receive a message from another tab
       channel.onmessage = (event) => {
+        console.log('[MultiTab] Received:', event.data);
         if (!event.data || !event.data.tabId || event.data.tabId === myTabId) return;
 
         if (event.data.type === 'presence') {
@@ -1143,7 +1167,7 @@ export default function WorkflowApp() {
 
       // Broadcast our presence immediately and on interval
       const sendPresence = () => {
-        channel.postMessage({ type: 'presence', tabId: myTabId, projectId: activeProjectId, workspaceId: activeTab });
+        safePostMessage({ type: 'presence', tabId: myTabId, projectId: activeProjectId, workspaceId: activeTab });
       };
       sendPresence();
       // Fix #3: Derive flags after initial sendPresence to ensure known state
@@ -1165,22 +1189,29 @@ export default function WorkflowApp() {
 
       // Send leave on tab close (beforeunload) so sibling clears warning immediately
       const handleBeforeUnload = () => {
-        channel.postMessage({ type: 'leave', tabId: myTabId });
+        safePostMessage({ type: 'leave', tabId: myTabId });
       };
       window.addEventListener('beforeunload', handleBeforeUnload);
 
       return () => {
+        console.log('[MultiTab] Channel cleanup:', { activeProjectId, activeTab, myTabId });
+        closed = true; // mark closed FIRST so safePostMessage becomes a no-op
         if (heartbeatInterval) clearInterval(heartbeatInterval);
         if (cleanupInterval) clearInterval(cleanupInterval);
         if (deriveFlagsTimer) clearTimeout(deriveFlagsTimer);
         window.removeEventListener('beforeunload', handleBeforeUnload);
         if (channel) {
-          channel.postMessage({ type: 'leave', tabId: myTabId });
+          try {
+            channel.postMessage({ type: 'leave', tabId: myTabId });
+          } catch (err) {
+            console.warn('[MultiTab] cleanup postMessage failed:', err);
+          }
           channel.close();
         }
       };
     } catch (e) {
       // BroadcastChannel not supported, fallback to localStorage
+      console.warn('[MultiTab] BroadcastChannel not supported, using localStorage fallback:', e);
       const storageKey = 'thoughtflow-tab-presence';
 
       const checkOtherTabs = () => {
@@ -1251,6 +1282,7 @@ export default function WorkflowApp() {
       window.addEventListener('beforeunload', handleBeforeUnload);
 
       return () => {
+        closed = true;
         clearInterval(heartbeatInterval);
         if (deriveFlagsTimer) clearTimeout(deriveFlagsTimer);
         window.removeEventListener('storage', handleStorage);
