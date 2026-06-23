@@ -1,0 +1,7 @@
+{
+  "task_id": "task-workspace-multi-tab-detection",
+  "task_description": "Wave 2: Replace project-agnostic multi-tab detection with workspace-specific detection. Only warn when another tab has the exact same project AND workspace open. Different workspaces of the same project should NOT trigger a warning. No synchronization, conflict resolution, or collaboration features.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}

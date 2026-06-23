@@ -1,0 +1,29 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Replace the project-agnostic multi-tab detection with workspace-specific detection. The new logic must only warn when another tab has the SAME project AND SAME workspace open. Different workspaces of the same project must NOT trigger a warning.",
+  "status": "in_progress",
+  "steps": [
+    "Step 1: Replace the existing multi-tab detection useEffect (lines 1082-1170 of src/App.jsx) with a workspace-aware implementation. The new approach:\n  - Generate a stable tab ID once per tab lifetime (e.g., crypto.randomUUID() or Date.now()+random stored in a useRef).\n  - Change the BroadcastChannel messages to include: { type: 'presence'|'leave'|'switch', tabId, projectId, workspaceId }.\n  - On receiving a 'presence' message, check if the sender's projectId AND workspaceId match our current activeProjectId AND activeTab. Only setIsMultiTab(true) when they match. Track the set of remote tabs that share our workspace (by tabId) so we can properly clear the warning when the last conflicting tab leaves or switches.\n  - On receiving a 'leave' message, remove that tabId from tracked peers. If no peers remain with same project+workspace, setIsMultiTab(false).\n  - On receiving a 'switch' message (sent when a tab changes workspace or project), treat it like a leave from the old workspace. If the new workspace matches ours, track it as a conflict.\n  - The useEffect dependency array must include [activeProjectId, activeTab] so that when the user switches workspace, we re-broadcast our new identity and re-evaluate conflicts against existing peers.\n  - On beforeunload, broadcast { type: 'leave', tabId }.\n  - Keep heartbeat interval (4s) and timeout (10s) for crash detection.",
+    "Step 2: Update the localStorage fallback (inside the catch block) to be workspace-aware. The fallback storage key should encode projectId and workspaceId, or store an object with those fields, and only flag isMultiTab when another tab's record matches our current project+workspace.",
+    "Step 3: Update the warning text in the UI (around line 5215 of src/App.jsx) to say: 'This workspace is already open in another tab. Changes may overwrite each other.' instead of the current generic text.",
+    "Step 4: Ensure that when the user switches workspace (activeTab changes) or project (activeProjectId changes), the effect tears down old listeners and re-establishes them for the new workspace identity. This is naturally handled by including [activeProjectId, activeTab] in the dependency array, which causes cleanup + re-run."
+  ],
+  "acceptance_criteria": [
+    "npm run build completes with no errors after changes",
+    "The BroadcastChannel messages now include tabId, projectId (from activeProjectId), and workspaceId (from activeTab)",
+    "isMultiTab is only set to true when a remote tab has BOTH the same activeProjectId AND same activeTab",
+    "Two tabs with the same project but different workspaces do NOT trigger the warning",
+    "Two tabs with the same project AND same workspace DO trigger the warning",
+    "The warning tooltip text reads: 'This workspace is already open in another tab. Changes may overwrite each other.'",
+    "When a tab switches workspace, it broadcasts a switch/leave message so the old workspace's peers can clear the warning",
+    "The localStorage fallback also implements workspace-specific detection"
+  ],
+  "verification": [
+    "Run `cd /projects/sandbox/ClearMind && npm run build` and confirm exit code 0",
+    "Manually verify by reading the code that presence messages include projectId and workspaceId fields",
+    "Manually verify the dependency array includes activeProjectId and activeTab"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
