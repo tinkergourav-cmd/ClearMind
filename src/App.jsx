@@ -1084,6 +1084,21 @@ export default function WorkflowApp() {
   }, [timerNotification]);
 
   // --- Multi-Tab Detection via BroadcastChannel ---
+  //
+  // CHANNEL INVENTORY (all BroadcastChannel instances in this app):
+  //   1. 'thoughtflow-tab-presence' -- our multi-tab detection (this useEffect)
+  //   2. '[Firebase] FID Change'    -- internal to @firebase/installations (not ours)
+  //   There is NO conflict between them; they are independent channels.
+  //
+  // MESSAGE TYPES on 'thoughtflow-tab-presence':
+  //   * { type: 'presence', tabId, projectId, workspaceId }
+  //       - Sent on effect mount and every 4 s (heartbeat).
+  //       - Handler: stores entry in otherTabsRef Map, calls deriveFlags().
+  //   * { type: 'leave', tabId }
+  //       - Sent on beforeunload and during cleanup when deps change.
+  //       - Handler: deletes entry from otherTabsRef Map, calls deriveFlags().
+  //   No other message types exist. Any unknown type is silently ignored (early-return).
+  //
   useEffect(() => {
     // Guard: Do not create the channel until both values are initialized.
     // activeProjectId and activeTab start as '' and are set after initialization.
@@ -1116,6 +1131,9 @@ export default function WorkflowApp() {
           }
         }
       });
+      // DIAGNOSTIC: Log what we are about to set, so if React crashes during
+      // the subsequent render we know exactly which state transition triggered it.
+      console.log('[MultiTab] deriveFlagsImmediate:', { sameProject, sameWorkspace, mapSize: otherTabsRef.current.size });
       setIsMultiTab(sameProject);
       setIsMultiTabSameWorkspace(sameWorkspace);
     };
@@ -1149,19 +1167,43 @@ export default function WorkflowApp() {
 
       // When we receive a message from another tab
       channel.onmessage = (event) => {
-        console.log('[MultiTab] Received:', event.data);
-        if (!event.data || !event.data.tabId || event.data.tabId === myTabId) return;
+        // DIAGNOSTIC: Log the raw payload BEFORE any processing.
+        console.log('[MultiTab receive raw]', event.data);
 
-        if (event.data.type === 'presence') {
-          otherTabsRef.current.set(event.data.tabId, {
-            projectId: event.data.projectId,
-            workspaceId: event.data.workspaceId,
-            lastSeen: Date.now()
-          });
-          deriveFlags();
-        } else if (event.data.type === 'leave') {
-          otherTabsRef.current.delete(event.data.tabId);
-          deriveFlags();
+        // DIAGNOSTIC: Wrap entire handler body in try-catch to identify crash line.
+        try {
+          if (!event.data || !event.data.tabId || event.data.tabId === myTabId) {
+            console.log('[MultiTab] Ignored (no data, no tabId, or own message):', event.data);
+            return;
+          }
+
+          if (event.data.type === 'presence') {
+            console.log('[MultiTab] Processing presence from:', event.data.tabId);
+            otherTabsRef.current.set(event.data.tabId, {
+              projectId: event.data.projectId,
+              workspaceId: event.data.workspaceId,
+              lastSeen: Date.now()
+            });
+            console.log('[MultiTab] Map updated, calling deriveFlags');
+            deriveFlags();
+            console.log('[MultiTab] deriveFlags scheduled (debounced) OK');
+          } else if (event.data.type === 'leave') {
+            console.log('[MultiTab] Processing leave from:', event.data.tabId);
+            otherTabsRef.current.delete(event.data.tabId);
+            console.log('[MultiTab] Map entry deleted, calling deriveFlags');
+            deriveFlags();
+            console.log('[MultiTab] deriveFlags scheduled (debounced) OK');
+          } else {
+            console.log('[MultiTab] Unknown message type ignored:', event.data.type);
+          }
+        } catch (handlerError) {
+          // DIAGNOSTIC: If the crash is INSIDE this handler, it will be caught here.
+          // If this catch does NOT fire, the crash is in React's re-render (scheduled
+          // by setIsMultiTab / setIsMultiTabSameWorkspace via the React scheduler's
+          // MessageChannel -- which shows up as "MessagePort.G" in the minified stack).
+          console.error('[MultiTab] EXCEPTION inside onmessage handler:', handlerError);
+          console.error('[MultiTab] Payload that triggered exception:', event.data);
+          console.error('[MultiTab] Stack:', handlerError.stack);
         }
       };
 
@@ -5266,9 +5308,14 @@ export default function WorkflowApp() {
     );
   }
 
+  // DIAGNOSTIC: Log render-phase entry point. If "W0 is not a constructor" fires
+  // AFTER this log but BEFORE "MultiTab UI rendering", the crash is somewhere
+  // earlier in the JSX tree. If it fires AFTER "MultiTab UI rendering", the crash
+  // is in the multi-tab warning section itself.
+  console.log('[MultiTab] Render phase entered, flags:', { isMultiTab, isMultiTabSameWorkspace, showMultiTabTooltip });
+
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] font-sans text-slate-800 selection:bg-indigo-100 overflow-hidden">
-      
       {/* --- Top Command Toolbar --- */}
       <header className="h-10 bg-white/50 backdrop-blur-sm border-b border-slate-200/80 flex items-center px-2 sm:px-3 z-50 justify-between shrink-0 gap-1 sm:gap-2 hover:bg-white/90 transition-all duration-300">
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
