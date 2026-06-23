@@ -1088,10 +1088,14 @@ export default function WorkflowApp() {
     let channel = null;
     let heartbeatInterval = null;
     let cleanupInterval = null;
+    let deriveFlagsTimer = null;
     const CHANNEL_NAME = 'thoughtflow-tab-presence';
     const myTabId = tabIdRef.current;
 
-    const deriveFlags = () => {
+    // Fix #1: Clear stale entries from previous project/workspace context
+    otherTabsRef.current.clear();
+
+    const deriveFlagsImmediate = () => {
       let sameProject = false;
       let sameWorkspace = false;
       otherTabsRef.current.forEach((info) => {
@@ -1105,6 +1109,16 @@ export default function WorkflowApp() {
       setIsMultiTab(sameProject);
       setIsMultiTabSameWorkspace(sameWorkspace);
     };
+
+    // Fix #2: Debounced version of deriveFlags to avoid flashing warnings
+    // when a sibling tab switches workspace (leave + presence in quick succession)
+    const deriveFlags = () => {
+      if (deriveFlagsTimer) clearTimeout(deriveFlagsTimer);
+      deriveFlagsTimer = setTimeout(deriveFlagsImmediate, 200);
+    };
+
+    // Fix #3: Derive flags immediately after clearing the Map to reset to known state
+    deriveFlagsImmediate();
 
     try {
       channel = new BroadcastChannel(CHANNEL_NAME);
@@ -1132,6 +1146,8 @@ export default function WorkflowApp() {
         channel.postMessage({ type: 'presence', tabId: myTabId, projectId: activeProjectId, workspaceId: activeTab });
       };
       sendPresence();
+      // Fix #3: Derive flags after initial sendPresence to ensure known state
+      deriveFlagsImmediate();
       heartbeatInterval = setInterval(sendPresence, 4000);
 
       // Cleanup stale entries (older than 10s)
@@ -1156,6 +1172,7 @@ export default function WorkflowApp() {
       return () => {
         if (heartbeatInterval) clearInterval(heartbeatInterval);
         if (cleanupInterval) clearInterval(cleanupInterval);
+        if (deriveFlagsTimer) clearTimeout(deriveFlagsTimer);
         window.removeEventListener('beforeunload', handleBeforeUnload);
         if (channel) {
           channel.postMessage({ type: 'leave', tabId: myTabId });
@@ -1235,6 +1252,7 @@ export default function WorkflowApp() {
 
       return () => {
         clearInterval(heartbeatInterval);
+        if (deriveFlagsTimer) clearTimeout(deriveFlagsTimer);
         window.removeEventListener('storage', handleStorage);
         window.removeEventListener('beforeunload', handleBeforeUnload);
         handleBeforeUnload();
