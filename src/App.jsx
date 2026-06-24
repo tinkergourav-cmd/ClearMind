@@ -3901,30 +3901,76 @@ export default function WorkflowApp() {
         }]
       }));
 
-      // Upload to Firebase Storage and update URL
-      uploadImageToStorage(file, activeProjectId, activeTab, imageId).then(downloadUrl => {
-        if (downloadUrl) {
-          URL.revokeObjectURL(objectUrl);
+      // Resize and compress to JPEG 0.7 using canvas (max 1024px)
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          console.warn('Canvas toBlob failed; keeping local preview for image:', imageId);
+          // Fall back to base64 src for persistence
+          const base64 = canvas.toDataURL('image/jpeg', 0.7);
           updateActiveWorkspace(ws => ({
             images: (ws.images || []).map(im =>
-              im.id === imageId ? { ...im, url: downloadUrl } : im
+              im.id === imageId ? { ...im, src: base64, url: undefined } : im
             )
           }));
-        } else {
-          console.warn('Image upload failed; keeping local preview for image:', imageId);
+          URL.revokeObjectURL(objectUrl);
+          return;
         }
-      });
+
+        // Upload compressed blob to Firebase Storage
+        uploadImageToStorage(blob, activeProjectId, activeTab, imageId).then(downloadUrl => {
+          if (downloadUrl) {
+            URL.revokeObjectURL(objectUrl);
+            updateActiveWorkspace(ws => ({
+              images: (ws.images || []).map(im =>
+                im.id === imageId ? { ...im, url: downloadUrl } : im
+              )
+            }));
+          } else {
+            // Upload failed - fall back to base64 for persistence
+            console.warn('Image upload failed; falling back to base64 for image:', imageId);
+            const base64 = canvas.toDataURL('image/jpeg', 0.7);
+            updateActiveWorkspace(ws => ({
+              images: (ws.images || []).map(im =>
+                im.id === imageId ? { ...im, src: base64, url: undefined } : im
+              )
+            }));
+            URL.revokeObjectURL(objectUrl);
+          }
+        });
+      }, 'image/jpeg', 0.7);
     };
     img.src = objectUrl;
   };
 
   const deleteImage = (imgId) => {
     takeSnapshot();
+    // Get the URL of the image being deleted to check for shared references
+    const deletedImage = (activeWs?.images || []).find(i => i.id === imgId);
+    const deletedUrl = deletedImage?.url;
+
     updateActiveWorkspace(ws => ({
       images: (ws.images || []).filter(i => i.id !== imgId),
       edges: ws.edges.filter(e => e.source !== imgId && e.target !== imgId)
     }));
-    deleteImageFromStorage(activeProjectId, activeTab, imgId);
+
+    // Only delete from Storage if no other image in any workspace references the same URL
+    if (deletedUrl) {
+      const allWorkspaces = stateRef.current.workspaces || [];
+      const hasOtherReference = allWorkspaces.some(ws =>
+        (ws.images || []).some(img => img.id !== imgId && img.url === deletedUrl)
+      );
+      if (!hasOtherReference) {
+        deleteImageFromStorage(activeProjectId, activeTab, imgId);
+      }
+    } else {
+      // No URL means it was base64 only, no Storage cleanup needed
+    }
   };
 
   const addNode = (clientX, clientY, targetGroupId = null) => {
@@ -6821,7 +6867,7 @@ export default function WorkflowApp() {
         <div ref={selectionMenuRef} className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] flex flex-col items-center transition-opacity ${selectionMenuOpen ? 'opacity-100' : 'opacity-50 hover:opacity-75'}`}>
           {selectionMenuOpen && (
             <div className="mb-2 bg-white rounded-xl shadow-xl border border-slate-200 p-2 flex flex-col gap-1 min-w-[180px]">
-              <button onClick={() => { takeSnapshot(); const deletedImageIds = (activeWs?.images || []).filter(img => selectedNodeIds.includes(img.id)).map(img => img.id); updateActiveWorkspace(ws => { const filtered = ws.nodes.filter(n => !selectedNodeIds.includes(n.id)); const filteredGroups = ws.groups.filter(g => !selectedNodeIds.includes(g.id)); const filteredImages = (ws.images || []).filter(img => !selectedNodeIds.includes(img.id)); const filteredEdges = ws.edges.filter(e => !selectedNodeIds.includes(e.source) && !selectedNodeIds.includes(e.target)); return { nodes: filtered, edges: filteredEdges, groups: computeLayout(filteredGroups, filtered), images: filteredImages }; }); if (deletedImageIds.length > 0) { deleteWorkspaceImages(activeProjectId, activeTab, deletedImageIds); } setSelectedNodeIds([]); setSelectionMenuOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors w-full text-left">
+              <button onClick={() => { takeSnapshot(); const deletedImages = (activeWs?.images || []).filter(img => selectedNodeIds.includes(img.id)); const deletedImageIds = deletedImages.map(img => img.id); updateActiveWorkspace(ws => { const filtered = ws.nodes.filter(n => !selectedNodeIds.includes(n.id)); const filteredGroups = ws.groups.filter(g => !selectedNodeIds.includes(g.id)); const filteredImages = (ws.images || []).filter(img => !selectedNodeIds.includes(img.id)); const filteredEdges = ws.edges.filter(e => !selectedNodeIds.includes(e.source) && !selectedNodeIds.includes(e.target)); return { nodes: filtered, edges: filteredEdges, groups: computeLayout(filteredGroups, filtered), images: filteredImages }; }); if (deletedImageIds.length > 0) { const allWorkspaces = stateRef.current.workspaces || []; const safeToDeleteIds = deletedImages.filter(delImg => { if (!delImg.url) return false; return !allWorkspaces.some(ws => (ws.images || []).some(img => img.id !== delImg.id && img.url === delImg.url)); }).map(img => img.id); if (safeToDeleteIds.length > 0) { deleteWorkspaceImages(activeProjectId, activeTab, safeToDeleteIds); } } setSelectedNodeIds([]); setSelectionMenuOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors w-full text-left">
                 <Trash2 className="w-4 h-4" /> Delete
               </button>
               <button onClick={() => { takeSnapshot(); const selectedNodes = nodes.filter(n => selectedNodeIds.includes(n.id)); const selectedEdges = edges.filter(e => selectedNodeIds.includes(e.source) && selectedNodeIds.includes(e.target)); const selectedImages = (activeWs?.images || []).filter(img => selectedNodeIds.includes(img.id)); let currentId = nextId; const idMap = {}; const newNodes = selectedNodes.map(n => { const newId = currentId.toString(); idMap[n.id] = newId; currentId++; return { ...n, id: newId, x: n.x + 40, y: n.y + 40, cloneSourceId: null, workspaceId: activeTab }; }); const newEdges = selectedEdges.map(e => ({ id: `e-${currentId++}`, source: idMap[e.source] || e.source, target: idMap[e.target] || e.target, workspaceId: activeTab })); const newImages = selectedImages.map(img => ({ ...img, id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, x: img.x + 40, y: img.y + 40, workspaceId: activeTab })); updateActiveWorkspace(ws => { const updatedNodes = [...ws.nodes, ...newNodes]; return { nodes: updatedNodes, edges: [...ws.edges, ...newEdges], groups: computeLayout(ws.groups, updatedNodes), images: [...(ws.images || []), ...newImages] }; }); setNextId(currentId); setSelectedNodeIds([...newNodes.map(n => n.id), ...newImages.map(img => img.id)]); setSelectionMenuOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors w-full text-left">
