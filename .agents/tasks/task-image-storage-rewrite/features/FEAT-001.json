@@ -1,0 +1,40 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Set up Firebase Storage, create imageStorageService.js module, and rewrite all image flows in App.jsx to use Firebase Storage URLs instead of base64 data",
+  "status": "in_progress",
+  "steps": [
+    "Step 1 - Add Firebase Storage to firebase.js: Import `getStorage` from 'firebase/storage'. Initialize the storage instance alongside db. Export `storage` alongside existing exports (app, db, isFirebaseConfigured).",
+    "Step 2 - Create src/imageStorageService.js: A new module with these functions: (a) `uploadImage(file, projectId, workspaceId, imageId)` - uploads to path `images/{projectId}/{workspaceId}/{imageId}`, returns download URL via getDownloadURL. (b) `deleteImage(projectId, workspaceId, imageId)` - deletes the file at that storage path. (c) `deleteWorkspaceImages(projectId, workspaceId, imageIds)` - batch deletes all images for a workspace. All functions should gracefully handle errors (log warning, don't throw). Import ref, uploadBytes, getDownloadURL, deleteObject from 'firebase/storage'. Check isFirebaseConfigured() before operations. Accept raw File or Blob objects.",
+    "Step 3 - Rewrite handleCanvasImageDrop in App.jsx (line ~3824): Remove FileReader/canvas/toDataURL logic. Instead: (a) generate imageId upfront, (b) call uploadImage(file, activeProjectId, activeTab, imageId), (c) create image object with `url` field (not `src`) containing the download URL, (d) still calculate display dimensions from loaded Image element for width/height, (e) still detect group membership. Mark image as loading during upload with a temporary placeholder if needed.",
+    "Step 4 - Rewrite the inline upload button at line ~5007: Same pattern as step 3. The inline `<input type='file'>` onChange currently has the full base64 logic inline. Refactor to call a shared upload function or replicate the Storage upload pattern.",
+    "Step 5 - Update image rendering JSX (line ~5744): Change `<img src={img.src}` to `<img src={img.url || img.src}` to support both new URL-based images and any legacy base64 images that might exist in saved data. This provides backward compatibility during transition.",
+    "Step 6 - Rewrite deleteImage function (line ~3904): After removing the image from workspace data, also call imageStorageService.deleteImage(activeProjectId, activeTab, imgId) to remove the file from Firebase Storage. Also handle the multi-select delete at line ~6807 similarly.",
+    "Step 7 - Update duplicateWorkspace (line ~2240): The current code creates new image IDs but copies all data. With URL-based images, the `newImages` mapping should keep the same `url` (shared Storage file) but get new id and workspaceId. No file copying needed.",
+    "Step 8 - Update multi-select Duplicate button (line ~6809): Same pattern - when duplicating selected images, keep the same `url` but assign new id. No storage file copy.",
+    "Step 9 - Update export functions: In exportSelectedNodes (line ~2985), images are NOT currently included in partial exports (only nodes/edges/groups). Leave this as-is. In exportAllData (line ~2791), workspace data includes images array which will now contain URLs instead of base64 - this is fine, URLs are portable. For handleImport and importAllData, images imported from old backups may contain `src` (base64) - the rendering already handles this via `img.url || img.src` from step 5.",
+    "Step 10 - Ensure undo/redo compatibility: The takeSnapshot/undo/redo system stores full workspace state snapshots. Since image objects now just have a `url` string instead of base64 `src`, undo/redo automatically works - restoring a snapshot restores the URL references. No code change needed but verify the image object shape is consistent.",
+    "Step 11 - Handle workspace deletion: When a workspace is deleted (find deleteWorkspace logic), call deleteWorkspaceImages to clean up all Storage files for that workspace. When a project is deleted, iterate all workspace image arrays and delete their Storage files.",
+    "Step 12 - Remove all remaining base64 image creation code: Ensure no path in App.jsx creates images with `src: base64Data` for canvas images. The project thumbnail upload (line ~5007 area) is a DIFFERENT feature (project thumbnails) - do NOT change that, it uses setProjectThumbnailInput and is unrelated to canvas images."
+  ],
+  "acceptance_criteria": [
+    "firebase.js exports a `storage` instance initialized from getStorage(app)",
+    "src/imageStorageService.js exists with uploadImage, deleteImage, deleteWorkspaceImages functions",
+    "handleCanvasImageDrop uploads file to Firebase Storage and stores URL in image object",
+    "The toolbar Upload Image button uses the same Storage upload pattern",
+    "Image rendering uses `img.url || img.src` for backward compatibility",
+    "deleteImage removes file from Firebase Storage in addition to workspace data",
+    "Workspace duplication reuses existing URLs without copying files",
+    "Multi-select duplicate reuses existing URLs",
+    "The project thumbnail upload (setProjectThumbnailInput) is NOT modified",
+    "npm run build succeeds with no errors"
+  ],
+  "verification": [
+    "Run `npm run build` in /projects/sandbox/ClearMind and confirm it succeeds",
+    "Verify firebase.js exports storage by reading the file",
+    "Verify imageStorageService.js exists and exports the required functions",
+    "Verify App.jsx no longer contains toDataURL or readAsDataURL for canvas image uploads (project thumbnail upload is exempt)"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

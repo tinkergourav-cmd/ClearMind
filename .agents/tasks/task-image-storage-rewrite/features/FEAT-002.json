@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-002",
+  "type": "chore",
+  "description": "Handle workspace and project deletion cleanup for Firebase Storage images, and ensure edge cases (loading states, error handling) are robust",
+  "status": "pending",
+  "steps": [
+    "Step 1 - Find the workspace deletion logic in App.jsx (search for deleteWorkspace or removeWorkspace functions). When a workspace is deleted, gather all image IDs from that workspace's images array and call deleteWorkspaceImages(activeProjectId, workspaceId, imageIds) to remove files from Storage.",
+    "Step 2 - Find the project deletion logic (deleteProject function). When a project is deleted, iterate through all workspace data for that project and delete all Storage images. Call deleteWorkspaceImages for each workspace.",
+    "Step 3 - Add error resilience: If uploadImage fails (network error, Storage not configured), the image should still be usable with a fallback. Consider storing a local object URL as temporary src so the user sees the image immediately, then replace with Storage URL when upload completes. If upload fails completely, show a toast/warning but keep the local preview.",
+    "Step 4 - Handle the case where isFirebaseConfigured() returns false: All image operations should fall back gracefully. uploadImage should return null, and images without URLs should still display if they have a local blob URL or the legacy src field."
+  ],
+  "acceptance_criteria": [
+    "Deleting a workspace also removes its images from Firebase Storage",
+    "Deleting a project removes all its images from Firebase Storage",
+    "Image upload gracefully handles errors without breaking the UI",
+    "When Firebase is not configured, images still work locally (degraded mode)",
+    "npm run build succeeds"
+  ],
+  "verification": [
+    "Run `npm run build` in /projects/sandbox/ClearMind and confirm it succeeds",
+    "Grep App.jsx for deleteWorkspace and verify Storage cleanup is called",
+    "Verify imageStorageService functions handle errors gracefully (try/catch with console.warn)"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

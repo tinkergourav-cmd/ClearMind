@@ -19,6 +19,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import CardEditorPanel from './CardEditorPanel';
 import { isFirebaseConfigured } from './firebase';
 import { validateWorkspaces } from './workspaceValidator';
+import { uploadImage as uploadImageToStorage, deleteImage as deleteImageFromStorage, deleteWorkspaceImages } from './imageStorageService';
 import {
   saveProjectMeta,
   saveWorkspace as saveWorkspaceToLocal,
@@ -2220,6 +2221,11 @@ export default function WorkflowApp() {
             : t
         ));
       }
+      // Delete images from Firebase Storage
+      const imageIds = (wsToDelete.images || []).map(img => img.id);
+      if (imageIds.length > 0) {
+        deleteWorkspaceImages(activeProjectId, id, imageIds);
+      }
     }
 
     // Remove from localStorage and Firestore
@@ -2861,6 +2867,11 @@ export default function WorkflowApp() {
     const deletedProjMeta = loadProjectMeta(targetId);
     if (deletedProjMeta && deletedProjMeta.workspaceIds) {
       for (const wsId of deletedProjMeta.workspaceIds) {
+        // Delete images from Firebase Storage for each workspace
+        const wsData = loadWorkspaceFromLocal(targetId, wsId);
+        if (wsData && wsData.images && wsData.images.length > 0) {
+          deleteWorkspaceImages(targetId, wsId, wsData.images.map(img => img.id));
+        }
         localStorage.removeItem(`cm-ws-${targetId}-${wsId}`);
       }
     }
@@ -3827,78 +3838,82 @@ export default function WorkflowApp() {
     const file = e.dataTransfer?.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
+    const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-        const MAX_SIZE = 1024;
-        if (width > height && width > MAX_SIZE) {
-          height *= MAX_SIZE / width;
-          width = MAX_SIZE;
-        } else if (height > MAX_SIZE) {
-          width *= MAX_SIZE / height;
-          height = MAX_SIZE;
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      const MAX_SIZE = 1024;
+      if (width > height && width > MAX_SIZE) {
+        height *= MAX_SIZE / width;
+        width = MAX_SIZE;
+      } else if (height > MAX_SIZE) {
+        width *= MAX_SIZE / height;
+        height = MAX_SIZE;
+      }
+
+      const rect = workspaceRef.current.getBoundingClientRect();
+      const dropX = (e.clientX - rect.left - transform.x) / transform.scale;
+      const dropY = (e.clientY - rect.top - transform.y) / transform.scale;
+
+      const displayWidth = 280;
+      const displayHeight = Math.round((height / width) * displayWidth);
+
+      // Check if image was dropped inside a group
+      const imgCenterX = dropX + displayWidth / 2;
+      const imgCenterY = dropY + displayHeight / 2;
+      let imageGroupId = null;
+      const currentGroups = stateRef.current.workspaces.find(w => w.id === stateRef.current.activeTab)?.groups || [];
+      const containingGroups = [];
+      for (const group of currentGroups) {
+        const gW = group.width || 440;
+        const gH = group.height || 420;
+        if (imgCenterX >= group.x && imgCenterX <= group.x + gW && imgCenterY >= group.y && imgCenterY <= group.y + gH) {
+          containingGroups.push(group);
         }
+      }
+      if (containingGroups.length > 0) {
+        const getDepth = (g) => {
+          let depth = 0;
+          let curr = g;
+          while (curr && curr.parentGroupId) { depth++; curr = currentGroups.find(p => p.id === curr.parentGroupId); }
+          return depth;
+        };
+        containingGroups.sort((a, b) => getDepth(b) - getDepth(a));
+        imageGroupId = containingGroups[0].id;
+      }
 
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
+      takeSnapshot();
+      // Add image with temporary object URL while uploading
+      updateActiveWorkspace(ws => ({
+        images: [...(ws.images || []), {
+          id: imageId,
+          x: dropX,
+          y: dropY,
+          width: displayWidth,
+          height: displayHeight,
+          url: objectUrl,
+          groupId: imageGroupId,
+          workspaceId: activeTab
+        }]
+      }));
 
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-
-        const rect = workspaceRef.current.getBoundingClientRect();
-        const dropX = (e.clientX - rect.left - transform.x) / transform.scale;
-        const dropY = (e.clientY - rect.top - transform.y) / transform.scale;
-
-        const displayWidth = 280;
-        const displayHeight = Math.round((height / width) * displayWidth);
-
-        // Check if image was dropped inside a group
-        const imgCenterX = dropX + displayWidth / 2;
-        const imgCenterY = dropY + displayHeight / 2;
-        let imageGroupId = null;
-        const currentGroups = stateRef.current.workspaces.find(w => w.id === stateRef.current.activeTab)?.groups || [];
-        const containingGroups = [];
-        for (const group of currentGroups) {
-          const gW = group.width || 440;
-          const gH = group.height || 420;
-          if (imgCenterX >= group.x && imgCenterX <= group.x + gW && imgCenterY >= group.y && imgCenterY <= group.y + gH) {
-            containingGroups.push(group);
-          }
+      // Upload to Firebase Storage and update URL
+      uploadImageToStorage(file, activeProjectId, activeTab, imageId).then(downloadUrl => {
+        URL.revokeObjectURL(objectUrl);
+        if (downloadUrl) {
+          updateActiveWorkspace(ws => ({
+            images: (ws.images || []).map(im =>
+              im.id === imageId ? { ...im, url: downloadUrl } : im
+            )
+          }));
         }
-        if (containingGroups.length > 0) {
-          const getDepth = (g) => {
-            let depth = 0;
-            let curr = g;
-            while (curr && curr.parentGroupId) { depth++; curr = currentGroups.find(p => p.id === curr.parentGroupId); }
-            return depth;
-          };
-          containingGroups.sort((a, b) => getDepth(b) - getDepth(a));
-          imageGroupId = containingGroups[0].id;
-        }
-
-        takeSnapshot();
-        updateActiveWorkspace(ws => ({
-          images: [...(ws.images || []), {
-            id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            x: dropX,
-            y: dropY,
-            width: displayWidth,
-            height: displayHeight,
-            src: compressedBase64,
-            groupId: imageGroupId,
-            workspaceId: activeTab
-          }]
-        }));
-      };
-      img.src = event.target.result;
+      });
     };
-    reader.readAsDataURL(file);
+    img.src = objectUrl;
   };
 
   const deleteImage = (imgId) => {
@@ -3907,6 +3922,7 @@ export default function WorkflowApp() {
       images: (ws.images || []).filter(i => i.id !== imgId),
       edges: ws.edges.filter(e => e.source !== imgId && e.target !== imgId)
     }));
+    deleteImageFromStorage(activeProjectId, activeTab, imgId);
   };
 
   const addNode = (clientX, clientY, targetGroupId = null) => {
@@ -5741,7 +5757,7 @@ export default function WorkflowApp() {
                     });
                   }}
                 >
-                  <img src={img.src} alt="Canvas image" className="w-full h-full object-cover" draggable={false} />
+                  <img src={img.url || img.src} alt="Canvas image" className="w-full h-full object-cover" draggable={false} />
                   {/* Delete button on hover */}
                   <button
                     onClick={(e) => { e.stopPropagation(); deleteImage(img.id); }}
@@ -6803,7 +6819,7 @@ export default function WorkflowApp() {
         <div ref={selectionMenuRef} className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] flex flex-col items-center transition-opacity ${selectionMenuOpen ? 'opacity-100' : 'opacity-50 hover:opacity-75'}`}>
           {selectionMenuOpen && (
             <div className="mb-2 bg-white rounded-xl shadow-xl border border-slate-200 p-2 flex flex-col gap-1 min-w-[180px]">
-              <button onClick={() => { takeSnapshot(); updateActiveWorkspace(ws => { const filtered = ws.nodes.filter(n => !selectedNodeIds.includes(n.id)); const filteredGroups = ws.groups.filter(g => !selectedNodeIds.includes(g.id)); const filteredImages = (ws.images || []).filter(img => !selectedNodeIds.includes(img.id)); const filteredEdges = ws.edges.filter(e => !selectedNodeIds.includes(e.source) && !selectedNodeIds.includes(e.target)); return { nodes: filtered, edges: filteredEdges, groups: computeLayout(filteredGroups, filtered), images: filteredImages }; }); setSelectedNodeIds([]); setSelectionMenuOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors w-full text-left">
+              <button onClick={() => { takeSnapshot(); const deletedImageIds = (activeWs?.images || []).filter(img => selectedNodeIds.includes(img.id)).map(img => img.id); updateActiveWorkspace(ws => { const filtered = ws.nodes.filter(n => !selectedNodeIds.includes(n.id)); const filteredGroups = ws.groups.filter(g => !selectedNodeIds.includes(g.id)); const filteredImages = (ws.images || []).filter(img => !selectedNodeIds.includes(img.id)); const filteredEdges = ws.edges.filter(e => !selectedNodeIds.includes(e.source) && !selectedNodeIds.includes(e.target)); return { nodes: filtered, edges: filteredEdges, groups: computeLayout(filteredGroups, filtered), images: filteredImages }; }); if (deletedImageIds.length > 0) { deleteWorkspaceImages(activeProjectId, activeTab, deletedImageIds); } setSelectedNodeIds([]); setSelectionMenuOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors w-full text-left">
                 <Trash2 className="w-4 h-4" /> Delete
               </button>
               <button onClick={() => { takeSnapshot(); const selectedNodes = nodes.filter(n => selectedNodeIds.includes(n.id)); const selectedEdges = edges.filter(e => selectedNodeIds.includes(e.source) && selectedNodeIds.includes(e.target)); const selectedImages = (activeWs?.images || []).filter(img => selectedNodeIds.includes(img.id)); let currentId = nextId; const idMap = {}; const newNodes = selectedNodes.map(n => { const newId = currentId.toString(); idMap[n.id] = newId; currentId++; return { ...n, id: newId, x: n.x + 40, y: n.y + 40, cloneSourceId: null, workspaceId: activeTab }; }); const newEdges = selectedEdges.map(e => ({ id: `e-${currentId++}`, source: idMap[e.source] || e.source, target: idMap[e.target] || e.target, workspaceId: activeTab })); const newImages = selectedImages.map(img => ({ ...img, id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, x: img.x + 40, y: img.y + 40, workspaceId: activeTab })); updateActiveWorkspace(ws => { const updatedNodes = [...ws.nodes, ...newNodes]; return { nodes: updatedNodes, edges: [...ws.edges, ...newEdges], groups: computeLayout(ws.groups, updatedNodes), images: [...(ws.images || []), ...newImages] }; }); setNextId(currentId); setSelectedNodeIds([...newNodes.map(n => n.id), ...newImages.map(img => img.id)]); setSelectionMenuOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors w-full text-left">

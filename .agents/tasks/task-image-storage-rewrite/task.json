@@ -1,0 +1,7 @@
+{
+  "task_id": "task-image-storage-rewrite",
+  "task_description": "Rewrite image architecture from base64-in-workspace-JSON to Firebase Storage with URL references. Upload files to images/{projectId}/{workspaceId}/{imageId}, store download URLs in image objects, delete Storage files on image/workspace/project deletion, reuse URLs on duplication.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
