@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Enhance multi-tab detection to differentiate between same-project and same-workspace collisions, and update the warning UI with specific messages per the user requirements.",
-  "status": "completed",
+  "status": "in_progress",
   "steps": [
     "Step 1 - Add new state variables in src/App.jsx near line 523 (alongside existing isMultiTab state): Add `const [isMultiTabSameWorkspace, setIsMultiTabSameWorkspace] = useState(false);` for workspace-level detection.",
     "Step 2 - Generate a unique tab ID. Add a useRef near line 527: `const tabIdRef = useRef(Date.now().toString(36) + Math.random().toString(36).slice(2));` This identifies the current tab uniquely so it can ignore its own messages.",
