@@ -1,0 +1,28 @@
+{
+  "project_type": "React SPA with Firebase (Firestore + Storage) backend",
+  "language": "JavaScript (JSX, no TypeScript)",
+  "build_system": "Vite with React plugin, TailwindCSS for styling",
+  "test_framework": "None (no test suite exists in this project)",
+  "build_command": "npm run build",
+  "test_command": "npm run build (no test suite; build is the only automated check)",
+  "verification_instructions": "1. Run `npm run build` to confirm no compile/bundle errors. 2. Inspect changed files for correct imports and no syntax errors.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "cd /projects/sandbox/ClearMind && npm install",
+  "environment_constraints": "Open internet access available. No test suite exists. Firebase SDK v12.14.0 is already in package.json.",
+  "contribution_requirements": "No CONTRIBUTING.md exists. Follow existing code patterns in App.jsx and persistenceService.js.",
+  "key_patterns": "App.jsx is a monolithic 7009-line component. All state managed via useState/useRef. updateActiveWorkspace(ws => ({...})) pattern for workspace mutations. takeSnapshot() called before mutations for undo/redo. Image objects: {id, src, x, y, width, height, rotation, groupId, workspaceId}. persistenceService.js exports localStorage + Firestore CRUD functions. firebase.js exports app, db, isFirebaseConfigured().",
+  "relevant_files": [
+    "src/firebase.js",
+    "src/persistenceService.js",
+    "src/App.jsx (lines 3822-3910 upload flow)",
+    "src/App.jsx (lines 3904-3910 deleteImage)",
+    "src/App.jsx (lines 2240-2340 duplicateWorkspace)",
+    "src/App.jsx (lines 5690-5770 image rendering JSX)",
+    "src/App.jsx (lines 5005-5008 toolbar upload button)",
+    "src/App.jsx (lines 6809 multi-select duplicate with images)",
+    "src/App.jsx (lines 2985-3040 exportSelectedNodes)",
+    "src/App.jsx (lines 3046-3080 handleImport)",
+    "src/App.jsx (lines 2791-2825 exportAllData backup)"
+  ],
+  "directory_structure": "src/ contains all source: App.jsx (main component), firebase.js (Firebase init), persistenceService.js (storage layer), main.jsx (entry), index.css (TailwindCSS), other panel components. public/ has static assets. Root has vite.config.js, tailwind.config.js, package.json."
+}

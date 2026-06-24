@@ -1,0 +1,14 @@
+{
+  "task_id": "task-image-storage-rewrite",
+  "task_description": "Rewrite image architecture from base64-in-workspace-JSON to Firebase Storage with URL references. Upload files to images/{projectId}/{workspaceId}/{imageId}, store download URLs in image objects, delete Storage files on image/workspace/project deletion, reuse URLs on duplication.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "skipped",
+    "docker_build": "skipped",
+    "summary": "npm run build succeeds. No test suite exists in this project. No Dockerfile present. All acceptance criteria verified through code inspection: Storage service created, upload/delete/render/duplicate flows rewritten, backward compatibility maintained, error resilience added."
+  }
+}
