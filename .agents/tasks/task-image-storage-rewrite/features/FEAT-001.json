@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Set up Firebase Storage, create imageStorageService.js module, and rewrite all image flows in App.jsx to use Firebase Storage URLs instead of base64 data",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1 - Add Firebase Storage to firebase.js: Import `getStorage` from 'firebase/storage'. Initialize the storage instance alongside db. Export `storage` alongside existing exports (app, db, isFirebaseConfigured).",
     "Step 2 - Create src/imageStorageService.js: A new module with these functions: (a) `uploadImage(file, projectId, workspaceId, imageId)` - uploads to path `images/{projectId}/{workspaceId}/{imageId}`, returns download URL via getDownloadURL. (b) `deleteImage(projectId, workspaceId, imageId)` - deletes the file at that storage path. (c) `deleteWorkspaceImages(projectId, workspaceId, imageIds)` - batch deletes all images for a workspace. All functions should gracefully handle errors (log warning, don't throw). Import ref, uploadBytes, getDownloadURL, deleteObject from 'firebase/storage'. Check isFirebaseConfigured() before operations. Accept raw File or Blob objects.",
@@ -36,5 +36,5 @@
     "Verify App.jsx no longer contains toDataURL or readAsDataURL for canvas image uploads (project thumbnail upload is exempt)"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Step 4 (toolbar upload button) was not applicable because the only file input in the ~5007 area is the project thumbnail upload which must not be modified. The canvas image upload path is exclusively via drag-and-drop (handleCanvasImageDrop). Steps 7, 8, 9, 10 required no code changes as existing patterns already support URL-based images correctly."
 }
