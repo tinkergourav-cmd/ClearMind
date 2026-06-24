@@ -30,5 +30,5 @@
     "Run 'npm run build' and confirm it exits with code 0"
   ],
   "blocked_reason": null,
-  "findings": "Build succeeds. JSZip adds about 100KB to the bundle (269KB gzipped total). No test framework to run additional tests."
+  "findings": "Build succeeds. JSZip adds about 100KB to the bundle (269KB gzipped total). No test framework to run additional tests. Post-review fixes applied: (1) img.filename is now only deleted when upload succeeds, preventing orphaned image entries when Firebase is unavailable. (2) Full-backup export namespaces image filenames by projectId (images/<projectId>/<imageId>.<ext>) to prevent ID collisions across projects."
 }
