@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "chore",
   "description": "Handle workspace and project deletion cleanup for Firebase Storage images, and ensure edge cases (loading states, error handling) are robust",
-  "status": "pending",
+  "status": "completed",
   "steps": [
     "Step 1 - Find the workspace deletion logic in App.jsx (search for deleteWorkspace or removeWorkspace functions). When a workspace is deleted, gather all image IDs from that workspace's images array and call deleteWorkspaceImages(activeProjectId, workspaceId, imageIds) to remove files from Storage.",
     "Step 2 - Find the project deletion logic (deleteProject function). When a project is deleted, iterate through all workspace data for that project and delete all Storage images. Call deleteWorkspaceImages for each workspace.",
@@ -22,5 +22,5 @@
     "Verify imageStorageService functions handle errors gracefully (try/catch with console.warn)"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Most of the acceptance criteria (workspace deletion cleanup, project deletion cleanup, isFirebaseConfigured guards, try/catch error handling) were already implemented as part of FEAT-001. The only remaining fix was moving URL.revokeObjectURL inside the success branch of handleCanvasImageDrop so failed uploads preserve the local blob URL preview."
 }
