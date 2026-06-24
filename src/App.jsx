@@ -3903,13 +3903,15 @@ export default function WorkflowApp() {
 
       // Upload to Firebase Storage and update URL
       uploadImageToStorage(file, activeProjectId, activeTab, imageId).then(downloadUrl => {
-        URL.revokeObjectURL(objectUrl);
         if (downloadUrl) {
+          URL.revokeObjectURL(objectUrl);
           updateActiveWorkspace(ws => ({
             images: (ws.images || []).map(im =>
               im.id === imageId ? { ...im, url: downloadUrl } : im
             )
           }));
+        } else {
+          console.warn('Image upload failed; keeping local preview for image:', imageId);
         }
       });
     };
