@@ -1,0 +1,34 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Replace the existing JSON-based project export/import with a ZIP-based format that bundles images as files inside the archive. Uses JSZip library. Modifies exportSingleProject, exportAllData, handleImport, and importAllData in App.jsx.",
+  "status": "in_progress",
+  "steps": [
+    "Run 'npm install jszip' to add JSZip as a dependency in package.json",
+    "Create a new service file src/zipExportImportService.js that encapsulates all ZIP export/import logic. This keeps the already-large App.jsx from growing further. The service should export two main functions: exportProjectAsZip(projectData, projectName) and importProjectFromZip(file, uploadImageFn). Details below.",
+    "exportProjectAsZip(projectData, projectName): (1) Deep-clone projectData. (2) Collect all image objects from all workspaces that have a 'url' property (Firebase URLs). (3) Fetch each image URL as a blob. (4) Generate a filename for each image: use pattern '<imageId>.<extension>' where extension is derived from the blob's content-type (default to 'jpg'). (5) In the cloned projectData, replace each image's 'url' property with a 'filename' property set to the generated filename. Remove 'src' field if present. (6) Create a JSZip instance. Add 'project.json' containing JSON.stringify of the modified projectData. Add each image blob to 'images/<filename>'. (7) Generate the zip blob and trigger browser download as '<projectName>.zip'.",
+    "importProjectFromZip(zipFile, uploadImageFn): (1) Load the ZIP file with JSZip. (2) Extract and parse 'project.json'. (3) List all files under 'images/' folder. (4) For each workspace in the project, iterate its images array. For each image that has a 'filename' property (not 'url'), find the corresponding file in the ZIP's images/ folder. (5) Upload the image blob to Firebase Storage using the provided uploadImageFn(blob, projectId, workspaceId, imageId) which returns a download URL. (6) Replace the 'filename' property with 'url' set to the new download URL. (7) Return the fully restored project data object.",
+    "In src/App.jsx, import the two new functions from zipExportImportService.js.",
+    "Modify exportSingleProject in App.jsx: instead of creating a JSON blob and downloading it, call exportProjectAsZip(exportData, target.name). The function is already async so this is straightforward.",
+    "Modify exportAllData in App.jsx: wrap the backup object (containing all projects) in a ZIP using the same pattern - collect images from all projects' workspaces, download blobs, replace URLs with filenames, bundle into a single ZIP named 'thoughtflow-backup-<date>.zip'.",
+    "Modify handleImport in App.jsx: detect whether the file is a .zip or .json. If .zip, use importProjectFromZip passing uploadImage from imageStorageService as the upload function, then restore state from the returned project data. If .json, keep existing behavior.",
+    "Modify importAllData in App.jsx: similarly detect .zip vs .json. For .zip, extract and import using the new service. The ZIP for full backup will contain a project.json with the backup wrapper format ({type, version, projects}). Images from all projects go into a single images/ folder with unique filenames.",
+    "Update the file input elements to accept '.zip,.json' instead of just '.json' so users can select ZIP files.",
+    "Run 'npm run build' to verify no compilation errors."
+  ],
+  "acceptance_criteria": [
+    "JSZip is listed as a dependency in package.json",
+    "src/zipExportImportService.js exists with exportProjectAsZip and importProjectFromZip functions",
+    "exportSingleProject produces a .zip file containing project.json and images/ folder",
+    "exportAllData produces a .zip file containing project.json (backup format) and images/ folder",
+    "handleImport and importAllData accept both .zip and .json files",
+    "When importing a .zip, images are uploaded to Firebase Storage and URLs are restored in the project data",
+    "project.json inside the ZIP uses 'filename' property on images instead of 'url'",
+    "'npm run build' completes successfully"
+  ],
+  "verification": [
+    "Run 'npm run build' and confirm it exits with code 0"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

@@ -1,0 +1,7 @@
+{
+  "task_id": "task-zip-export-import",
+  "task_description": "Replace JSON-based project export/import with ZIP-based format that bundles image files inside the archive for self-contained backups independent of Firebase Storage URLs",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}
