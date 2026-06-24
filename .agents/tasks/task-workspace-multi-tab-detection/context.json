@@ -1,0 +1,18 @@
+{
+  "project_type": "React + Vite SPA with Firebase Firestore integration",
+  "language": "JavaScript (JSX)",
+  "build_system": "Vite (npm)",
+  "test_framework": "None (no test files present)",
+  "build_command": "npm run build",
+  "test_command": null,
+  "verification_instructions": "Run npm install && npm run build to verify the application compiles cleanly with no errors.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "cd /projects/sandbox/ClearMind && npm install",
+  "environment_constraints": "No test suite exists. Verification is limited to build success. No Docker daemon available.",
+  "contribution_requirements": "Commit changes to local branch. Do NOT push.",
+  "key_patterns": "App.jsx is a single 7009-line component with all state declared via useState at the top. Multi-tab detection currently uses BroadcastChannel ('thoughtflow-tab-presence') on a single channel with a project/workspace-agnostic presence heartbeat (4s interval, 10s timeout). State variables: isMultiTab (boolean), showMultiTabTooltip (boolean). UI is an amber warning banner shown in the header (lines 5199-5230). The dependency array is [] so the effect runs once on mount. activeProjectId and activeTab are both state variables that change when user switches project/workspace.",
+  "relevant_files": [
+    "src/App.jsx"
+  ],
+  "directory_structure": "Single src/ directory with all components (JSX) and services (JS). No subdirectories. Config at root."
+}
