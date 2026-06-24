@@ -1105,6 +1105,7 @@ export default function WorkflowApp() {
           }
           // Derive same-workspace from all known siblings
           const sameWs = Object.values(siblingWorkspacesRef.current).some(ws => ws === activeTabRef.current);
+          console.log('[MultiTab DIAG] presence received:', { siblings: { ...siblingWorkspacesRef.current }, activeTabRef: activeTabRef.current, sameWs });
           setIsMultiTabSameWorkspace(sameWs);
           // Reset timeout - if no heartbeat for 10s, assume other tab closed
           if (tabTimeout) clearTimeout(tabTimeout);
@@ -1131,8 +1132,10 @@ export default function WorkflowApp() {
 
       // Broadcast our presence immediately and on interval
       channel.postMessage({ type: 'presence', tabId: tabIdRef.current, workspaceId: activeTabRef.current });
+      console.log('[MultiTab DIAG] heartbeat sent:', { tabId: tabIdRef.current, workspaceId: activeTabRef.current });
       heartbeatInterval = setInterval(() => {
         channel.postMessage({ type: 'presence', tabId: tabIdRef.current, workspaceId: activeTabRef.current });
+        console.log('[MultiTab DIAG] heartbeat sent:', { tabId: tabIdRef.current, workspaceId: activeTabRef.current });
       }, 4000);
 
       // Send leave on tab close (beforeunload) so sibling clears warning immediately
@@ -1221,7 +1224,10 @@ export default function WorkflowApp() {
   }, [isMultiTab]);
 
   // Keep activeTabRef in sync with activeTab state
-  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+    console.log('[MultiTab DIAG] activeTabRef synced:', activeTab);
+  }, [activeTab]);
 
   // --- Export Reminder Breathing Animation (every 5 minutes) ---
   const exportBreathTimeoutRef = useRef(null);
