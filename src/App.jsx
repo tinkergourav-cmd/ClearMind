@@ -2782,7 +2782,11 @@ export default function WorkflowApp() {
     const exportData = hydrated
       ? { ...hydrated, password: '' }
       : { ...target, password: '' };
-    await exportProjectAsZip(exportData, target.name);
+    try {
+      await exportProjectAsZip(exportData, target.name);
+    } catch (err) {
+      setErrorMessage("Failed to export project as ZIP.");
+    }
     setCardMenuOpenId(null);
   };
 
@@ -2812,7 +2816,11 @@ export default function WorkflowApp() {
       defaultProjectId,
       projects: exportProjects
     };
-    await exportAllDataAsZip(backupData);
+    try {
+      await exportAllDataAsZip(backupData);
+    } catch (err) {
+      setErrorMessage("Failed to export backup as ZIP.");
+    }
   };
 
   // Helper: relative time display
