@@ -1,0 +1,34 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Enhance multi-tab detection to differentiate between same-project and same-workspace collisions, and update the warning UI with specific messages per the user requirements.",
+  "status": "completed",
+  "steps": [
+    "Step 1 - Add new state variables in src/App.jsx near line 523 (alongside existing isMultiTab state): Add `const [isMultiTabSameWorkspace, setIsMultiTabSameWorkspace] = useState(false);` for workspace-level detection.",
+    "Step 2 - Generate a unique tab ID. Add a useRef near line 527: `const tabIdRef = useRef(Date.now().toString(36) + Math.random().toString(36).slice(2));` This identifies the current tab uniquely so it can ignore its own messages.",
+    "Step 3 - Rewrite the BroadcastChannel useEffect (lines 1083-1165) to include project and workspace info in messages. The heartbeat message should be: `{ type: 'presence', tabId, projectId: activeProjectId, workspaceId: activeTab }`. The leave message should be: `{ type: 'leave', tabId }`. On receiving a presence message: (a) ignore messages from own tabId, (b) track other tabs in a Map ref keyed by tabId with value { projectId, workspaceId, lastSeen }. (c) derive isMultiTab = any other tab has the same projectId. (d) derive isMultiTabSameWorkspace = any other tab has same projectId AND same workspaceId. Use a cleanup interval that removes entries older than 10 seconds. Add activeProjectId and activeTab to the useEffect dependency array so the heartbeat updates when the user switches project or workspace.",
+    "Step 4 - Handle the leave message: remove the tab from the tracking Map and re-derive both flags.",
+    "Step 5 - For the localStorage fallback (catch block), extend the stored object to include projectId and workspaceId, and apply the same derivation logic.",
+    "Step 6 - Update the existing useEffect that clears showMultiTabTooltip (around line 1167) to also clear the tooltip when neither flag is true.",
+    "Step 7 - Replace the warning UI section (lines 5195-5225) with a new block that shows differentiated warnings: (a) When isMultiTabSameWorkspace is true, show BOTH a project-level warning AND a workspace-level warning (as separate elements or a combined tooltip). The project warning text: '\\u26a0 This project is already open in another tab. Task data may be overwritten.' The workspace warning text: '\\u26a0 This workspace is already open in another tab. Changes may overwrite each other.' (b) When isMultiTab is true but isMultiTabSameWorkspace is false, show only the project-level warning. (c) Keep the existing amber styling pattern (amber-50 bg, amber-200 border, AlertTriangle icon from lucide-react). Show the full warning text on sm+ screens and icon-only on xs screens.",
+    "Step 8 - Ensure cleanup on beforeunload sends the leave message with tabId, and when the useEffect re-runs (due to activeProjectId/activeTab change), it sends a new presence immediately so other tabs update their tracking."
+  ],
+  "acceptance_criteria": [
+    "The app builds successfully with npm run build (no compile errors).",
+    "The BroadcastChannel messages include projectId and workspaceId fields.",
+    "A unique tabId is generated per tab and included in messages.",
+    "isMultiTab is true when another tab has the same activeProjectId.",
+    "isMultiTabSameWorkspace is true when another tab has the same activeProjectId AND same activeTab (workspace).",
+    "When only project matches (different workspaces), the UI shows: 'This project is already open in another tab. Task data may be overwritten.' with warning emoji.",
+    "When both project and workspace match, the UI shows both the project-level warning AND the workspace-level warning: 'This workspace is already open in another tab. Changes may overwrite each other.'",
+    "When the user switches workspace in one tab, the other tab's flags update within one heartbeat cycle (4 seconds).",
+    "On tab close (beforeunload), a leave message is sent so other tabs clear warnings promptly.",
+    "No synchronization, merge logic, OT, CRDTs, lock server, or collaboration features are introduced.",
+    "Last-writer-wins behavior is preserved unchanged."
+  ],
+  "verification": [
+    "Run `cd /projects/sandbox/ClearMind && npm install && npm run build` and confirm it completes with exit code 0."
+  ],
+  "blocked_reason": null,
+  "findings": "Re-implemented from scratch after prior revert. Minimal approach: no new BroadcastChannel, no new heartbeat, no new Map, dependency array stays []. Uses activeTabRef.current to avoid stale closures. Derives isMultiTabSameWorkspace from ALL known siblings via siblingWorkspacesRef (plain object keyed by tabId). localStorage fallback stores array of {id, workspaceId, timestamp} entries. Build succeeds cleanly."
+}

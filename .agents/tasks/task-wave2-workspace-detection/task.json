@@ -1,0 +1,14 @@
+{
+  "task_id": "task-wave2-workspace-detection",
+  "task_description": "Enhance multi-tab detection to differentiate same-project vs same-workspace collisions with clear user-facing warnings. No sync/collaboration features.",
+  "status": "completed",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "skipped",
+    "docker_build": "skipped",
+    "summary": "npm run build succeeds. No test suite exists in this project so test quality is skipped."
+  }
+}

@@ -523,9 +523,13 @@ export default function WorkflowApp() {
   // --- Header Notification Indicators ---
   const [isMultiTab, setIsMultiTab] = useState(false);
   const [showMultiTabTooltip, setShowMultiTabTooltip] = useState(false);
+  const [isMultiTabSameWorkspace, setIsMultiTabSameWorkspace] = useState(false);
   const [showExportBreath, setShowExportBreath] = useState(false);
   const exportBreathTimerRef = useRef(null);
   const broadcastChannelRef = useRef(null);
+  const activeTabRef = useRef(activeTab);
+  const tabIdRef = useRef(Date.now().toString(36) + Math.random().toString(36).slice(2));
+  const siblingWorkspacesRef = useRef({});
 
   // --- Password Protection ---
   const [passwordEnabled, setPasswordEnabled] = useState(false);
@@ -1096,24 +1100,45 @@ export default function WorkflowApp() {
       channel.onmessage = (event) => {
         if (event.data && event.data.type === 'presence') {
           setIsMultiTab(true);
+          // Track this sibling's workspace
+          if (event.data.tabId) {
+            siblingWorkspacesRef.current[event.data.tabId] = event.data.workspaceId || '';
+          }
+          // Derive same-workspace from all known siblings
+          const sameWs = Object.values(siblingWorkspacesRef.current).some(ws => ws === activeTabRef.current);
+          setIsMultiTabSameWorkspace(sameWs);
           // Reset timeout - if no heartbeat for 10s, assume other tab closed
           if (tabTimeout) clearTimeout(tabTimeout);
-          tabTimeout = setTimeout(() => setIsMultiTab(false), 10000);
+          tabTimeout = setTimeout(() => {
+            setIsMultiTab(false);
+            setIsMultiTabSameWorkspace(false);
+            siblingWorkspacesRef.current = {};
+          }, 10000);
         } else if (event.data && event.data.type === 'leave') {
+          // Remove the leaving sibling and re-derive
+          if (event.data.tabId) {
+            delete siblingWorkspacesRef.current[event.data.tabId];
+          }
+          const sameWs = Object.values(siblingWorkspacesRef.current).some(ws => ws === activeTabRef.current);
+          setIsMultiTabSameWorkspace(sameWs);
           if (tabTimeout) clearTimeout(tabTimeout);
-          tabTimeout = setTimeout(() => setIsMultiTab(false), 2000);
+          tabTimeout = setTimeout(() => {
+            setIsMultiTab(false);
+            setIsMultiTabSameWorkspace(false);
+            siblingWorkspacesRef.current = {};
+          }, 2000);
         }
       };
 
       // Broadcast our presence immediately and on interval
-      channel.postMessage({ type: 'presence' });
+      channel.postMessage({ type: 'presence', tabId: tabIdRef.current, workspaceId: activeTabRef.current });
       heartbeatInterval = setInterval(() => {
-        channel.postMessage({ type: 'presence' });
+        channel.postMessage({ type: 'presence', tabId: tabIdRef.current, workspaceId: activeTabRef.current });
       }, 4000);
 
       // Send leave on tab close (beforeunload) so sibling clears warning immediately
       const handleBeforeUnload = () => {
-        channel.postMessage({ type: 'leave' });
+        channel.postMessage({ type: 'leave', tabId: tabIdRef.current });
       };
       window.addEventListener('beforeunload', handleBeforeUnload);
 
@@ -1122,34 +1147,57 @@ export default function WorkflowApp() {
         if (tabTimeout) clearTimeout(tabTimeout);
         window.removeEventListener('beforeunload', handleBeforeUnload);
         if (channel) {
-          channel.postMessage({ type: 'leave' });
+          channel.postMessage({ type: 'leave', tabId: tabIdRef.current });
           channel.close();
         }
       };
     } catch (e) {
       // BroadcastChannel not supported, fallback to localStorage
       const storageKey = 'thoughtflow-tab-id';
-      const myId = Date.now() + '-' + Math.random().toString(36).slice(2);
+      const myId = tabIdRef.current;
       
       const checkOtherTabs = () => {
         const stored = localStorage.getItem(storageKey);
         if (stored) {
           try {
-            const parsed = JSON.parse(stored);
-            if (parsed.id !== myId && Date.now() - parsed.timestamp < 10000) {
+            const entries = JSON.parse(stored);
+            // entries is an array of { id, workspaceId, timestamp }
+            const now = Date.now();
+            const activeSiblings = Array.isArray(entries)
+              ? entries.filter(e => e.id !== myId && now - e.timestamp < 10000)
+              : [];
+            if (activeSiblings.length > 0) {
               setIsMultiTab(true);
+              const sameWs = activeSiblings.some(e => e.workspaceId === activeTabRef.current);
+              setIsMultiTabSameWorkspace(sameWs);
             } else {
               setIsMultiTab(false);
+              setIsMultiTabSameWorkspace(false);
             }
           } catch {
             setIsMultiTab(false);
+            setIsMultiTabSameWorkspace(false);
           }
         }
       };
 
-      localStorage.setItem(storageKey, JSON.stringify({ id: myId, timestamp: Date.now() }));
+      const writeEntry = () => {
+        const stored = localStorage.getItem(storageKey);
+        let entries = [];
+        if (stored) {
+          try { entries = JSON.parse(stored); } catch { entries = []; }
+        }
+        if (!Array.isArray(entries)) entries = [];
+        // Remove stale entries and our own old entry
+        const now = Date.now();
+        entries = entries.filter(e => e.id !== myId && now - e.timestamp < 10000);
+        entries.push({ id: myId, workspaceId: activeTabRef.current, timestamp: now });
+        localStorage.setItem(storageKey, JSON.stringify(entries));
+      };
+
+      writeEntry();
       heartbeatInterval = setInterval(() => {
-        localStorage.setItem(storageKey, JSON.stringify({ id: myId, timestamp: Date.now() }));
+        writeEntry();
         checkOtherTabs();
       }, 4000);
 
@@ -1167,8 +1215,21 @@ export default function WorkflowApp() {
 
   // Close multi-tab tooltip when the warning clears
   useEffect(() => {
-    if (!isMultiTab) setShowMultiTabTooltip(false);
+    if (!isMultiTab) {
+      setShowMultiTabTooltip(false);
+      setIsMultiTabSameWorkspace(false);
+    }
   }, [isMultiTab]);
+
+  // [TEMPORARY] Wave 2 diagnostic: does isMultiTabSameWorkspace ever become true?
+  useEffect(() => {
+    console.log('[Wave2] sameWorkspace state:', isMultiTabSameWorkspace);
+  }, [isMultiTabSameWorkspace]);
+
+  // Keep activeTabRef in sync with activeTab state
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
 
   // --- Export Reminder Breathing Animation (every 5 minutes) ---
   const exportBreathTimeoutRef = useRef(null);
@@ -5276,7 +5337,10 @@ export default function WorkflowApp() {
               </div>
               {showMultiTabTooltip && (
                 <div className="absolute top-full left-0 mt-1 z-50 w-64 sm:w-72 p-2.5 bg-white border border-amber-200 rounded-lg shadow-lg text-xs text-slate-700 leading-relaxed">
-                  This canvas is currently open in another tab or window. To reduce the risk of data conflicts, refresh before starting work and export your data before leaving. For best reliability, work in only a single tab at a time and keep just one tab open per device.
+                  <p className="mb-1">{'\u26A0'} This project is already open in another tab. Task data may be overwritten.</p>
+                  {isMultiTabSameWorkspace && (
+                    <p className="mt-1.5 font-medium">{'\u26A0'} This workspace is already open in another tab. Changes may overwrite each other.</p>
+                  )}
                 </div>
               )}
             </div>
