@@ -129,36 +129,40 @@ export async function exportAllDataAsZip(backupData) {
   // Deep clone
   const data = JSON.parse(JSON.stringify(backupData));
 
-  // Collect images from all projects
+  // Collect images from all projects, keyed by projectId to avoid collisions
   const allImageEntries = [];
   for (const proj of (data.projects || [])) {
     const entries = collectImagesFromWorkspaces(proj.workspaces || []);
-    allImageEntries.push(...entries);
+    for (const entry of entries) {
+      allImageEntries.push({ ...entry, projectId: proj.id });
+    }
   }
 
   // Download all image blobs in parallel
   const downloads = await Promise.all(
-    allImageEntries.map(async ({ image }) => {
+    allImageEntries.map(async ({ image, projectId }) => {
       const blob = await fetchImageBlob(image.url);
-      return { imageId: image.id, blob };
+      return { imageId: image.id, projectId, blob };
     })
   );
 
-  // Build imageId -> { blob, filename } map
+  // Build a composite key (projectId/imageId) -> { blob, filename } map
   const imageMap = new Map();
-  for (const { imageId, blob } of downloads) {
+  for (const { imageId, projectId, blob } of downloads) {
     if (blob) {
       const ext = getExtensionFromBlob(blob);
-      const filename = `${imageId}.${ext}`;
-      imageMap.set(imageId, { blob, filename });
+      const filename = `${projectId}/${imageId}.${ext}`;
+      const key = `${projectId}/${imageId}`;
+      imageMap.set(key, { blob, filename });
     }
   }
 
-  // Replace URLs with filenames in all projects
+  // Replace URLs with filenames in all projects (namespaced by project ID)
   for (const proj of (data.projects || [])) {
     for (const ws of (proj.workspaces || [])) {
       for (const img of (ws.images || [])) {
-        const entry = imageMap.get(img.id);
+        const key = `${proj.id}/${img.id}`;
+        const entry = imageMap.get(key);
         if (entry) {
           delete img.url;
           delete img.src;
@@ -171,7 +175,7 @@ export async function exportAllDataAsZip(backupData) {
   // Add project.json (backup format)
   zip.file('project.json', JSON.stringify(data, null, 2));
 
-  // Add image files
+  // Add image files (nested under images/<projectId>/<imageId>.<ext>)
   for (const [, { blob, filename }] of imageMap) {
     imagesFolder.file(filename, blob);
   }
@@ -215,8 +219,10 @@ export async function importProjectFromZip(zipFile, uploadImageFn) {
           const url = await uploadImageFn(blob, projectId, ws.id, img.id);
           if (url) {
             img.url = url;
+            delete img.filename;
           }
-          delete img.filename;
+          // If upload failed (url is null), keep img.filename so the
+          // image reference is preserved and can be re-exported or retried.
         }
       }
     }
@@ -255,8 +261,10 @@ export async function importAllDataFromZip(zipFile, uploadImageFn) {
             const url = await uploadImageFn(blob, proj.id, ws.id, img.id);
             if (url) {
               img.url = url;
+              delete img.filename;
             }
-            delete img.filename;
+            // If upload failed (url is null), keep img.filename so the
+            // image reference is preserved and can be re-exported or retried.
           }
         }
       }
