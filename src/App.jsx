@@ -20,6 +20,7 @@ import CardEditorPanel from './CardEditorPanel';
 import { isFirebaseConfigured } from './firebase';
 import { validateWorkspaces } from './workspaceValidator';
 import { uploadImage as uploadImageToStorage, deleteImage as deleteImageFromStorage, deleteWorkspaceImages } from './imageStorageService';
+import { exportProjectAsZip, exportAllDataAsZip, importProjectFromZip, importAllDataFromZip } from './zipExportImportService';
 import {
   saveProjectMeta,
   saveWorkspace as saveWorkspaceToLocal,
@@ -413,6 +414,7 @@ export default function WorkflowApp() {
   const [contextMenu, setContextMenu] = useState(null);
   const [nodeContextMenu, setNodeContextMenu] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [warningMessage, setWarningMessage] = useState('');
   const [focusedNodeId, setFocusedNodeId] = useState(null);
   const [focusedGroupId, setFocusedGroupId] = useState(null);
   const [groupContextMenu, setGroupContextMenu] = useState(null);
@@ -2772,7 +2774,7 @@ export default function WorkflowApp() {
     setCardMenuOpenId(null);
   };
 
-  // Export a single project as JSON
+  // Export a single project as ZIP
   const exportSingleProject = async (targetId) => {
     const target = projects.find(p => p.id === targetId);
     if (!target) return;
@@ -2781,20 +2783,19 @@ export default function WorkflowApp() {
     const exportData = hydrated
       ? { ...hydrated, password: '' }
       : { ...target, password: '' };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${target.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const result = await exportProjectAsZip(exportData, target.name);
+      if (result && result.failedImageCount > 0) {
+        setWarningMessage(`Export completed with warnings. ${result.failedImageCount} image(s) could not be included in the ZIP and will continue to reference their Firebase URLs.`);
+      }
+    } catch (err) {
+      setErrorMessage("Failed to export project as ZIP.");
+    }
     setCardMenuOpenId(null);
   };
 
-  // Export all projects as a full backup
-  const exportAllData = () => {
+  // Export all projects as a full backup ZIP
+  const exportAllData = async () => {
     // Assemble full backup from per-workspace storage
     const exportProjects = projects.map(proj => {
       // Gather workspace data from per-workspace keys
@@ -2819,15 +2820,14 @@ export default function WorkflowApp() {
       defaultProjectId,
       projects: exportProjects
     };
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `thoughtflow-backup-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const result = await exportAllDataAsZip(backupData);
+      if (result && result.failedImageCount > 0) {
+        setWarningMessage(`Export completed with warnings. ${result.failedImageCount} image(s) could not be included in the ZIP and will continue to reference their Firebase URLs.`);
+      }
+    } catch (err) {
+      setErrorMessage("Failed to export backup as ZIP.");
+    }
   };
 
   // Helper: relative time display
@@ -3051,10 +3051,44 @@ export default function WorkflowApp() {
     URL.revokeObjectURL(url);
   };
 
-  const handleImport = (e) => {
+  const handleImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Handle ZIP files
+    if (file.name.endsWith('.zip')) {
+      try {
+        const projectData = await importProjectFromZip(file, uploadImageToStorage);
+        if (projectData.workspaces && Array.isArray(projectData.workspaces)) {
+          takeSnapshot();
+          const migratedWorkspaces = projectData.workspaces.map(ws => ({
+            ...ws,
+            nodes: (ws.nodes || []).map(n => ({ ...n, workspaceId: ws.id })),
+            edges: (ws.edges || []).map(e => ({ ...e, workspaceId: ws.id })),
+            groups: (ws.groups || []).map(g => ({ ...g, workspaceId: ws.id })),
+            pins: (ws.pins || []).map(p => ({ ...p, workspaceId: ws.id })),
+            images: (ws.images || []).map(img => ({ ...img, workspaceId: ws.id }))
+          }));
+          setWorkspaces(migratedWorkspaces);
+          if (import.meta.env.DEV) validateWorkspaces(migratedWorkspaces, 'after handleImport');
+          setActiveTab(projectData.activeTab || migratedWorkspaces[0]?.id || '');
+          setNextId(projectData.nextId || 10);
+          if (projectData.tasks) setTasks(normalizeTasks(projectData.tasks));
+          if (projectData.taskGroups) setTaskGroups(projectData.taskGroups.map((g, i) => ({
+            ...g,
+            color: g.color || GROUP_COLORS[i % GROUP_COLORS.length].id,
+          })));
+        } else {
+          setErrorMessage("Invalid workflow file format.");
+        }
+      } catch (err) {
+        setErrorMessage("Failed to read ZIP file.");
+      }
+      e.target.value = null;
+      return;
+    }
+
+    // Handle JSON files (existing behavior)
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
@@ -3091,10 +3125,99 @@ export default function WorkflowApp() {
   };
 
   // Import full backup data
-  const importAllData = (e) => {
+  const importAllData = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Handle ZIP files
+    if (file.name.endsWith('.zip')) {
+      try {
+        const importedData = await importAllDataFromZip(file, uploadImageToStorage);
+        if ((importedData.type === 'nexus-full-backup' || importedData.type === 'thoughtflow-backup') && Array.isArray(importedData.projects)) {
+          const isValid = importedData.projects.every(p =>
+            p && typeof p.id === 'string' && Array.isArray(p.workspaces)
+          );
+          if (!isValid) {
+            setErrorMessage("Backup file contains invalid project data.");
+            e.target.value = null;
+            return;
+          }
+
+          if (!window.confirm('This will replace all existing data. Continue?')) {
+            e.target.value = null;
+            return;
+          }
+
+          const previousProjects = projects;
+
+          try {
+            const restoredProjects = importedData.projects;
+            const restoredDefault = importedData.defaultProjectId || restoredProjects[0]?.id;
+            const migratedProjects = restoredProjects.map(proj => ({
+              ...proj,
+              workspaces: migrateWorkspaceIds(proj.workspaces || [])
+            }));
+            if (import.meta.env.DEV) {
+              migratedProjects.forEach(proj => validateWorkspaces(proj.workspaces || [], `after importAllData [project: ${proj.id}]`));
+            }
+            setProjects(migratedProjects);
+            setDefaultProjectId(restoredDefault);
+            setActiveProjectId(restoredDefault);
+
+            for (const proj of migratedProjects) {
+              const wsIds = (proj.workspaces || []).map(ws => ws.id);
+              saveProjectMeta(proj.id, {
+                id: proj.id, name: proj.name || 'Untitled', description: proj.description || '',
+                password: proj.password || null, thumbnail: proj.thumbnail || null,
+                lastModified: proj.lastModified || Date.now(), activeTab: proj.activeTab || wsIds[0] || '',
+                nextId: proj.nextId || 1, reminders: proj.reminders || [],
+                workspaceIds: wsIds, schemaVersion: 2
+              });
+              for (const ws of (proj.workspaces || [])) {
+                saveWorkspaceToLocal(proj.id, ws.id, {
+                  id: ws.id, name: ws.name || 'Workspace', nodes: ws.nodes || [], edges: ws.edges || [],
+                  groups: ws.groups || [], pins: ws.pins || [], images: ws.images || [], lastModified: Date.now()
+                });
+              }
+              saveTasks(proj.id, { tasks: proj.tasks || [], taskGroups: proj.taskGroups || [] });
+              if (isFirebaseConfigured()) {
+                saveProjectToFirestore(proj.id, { id: proj.id, name: proj.name || 'Untitled', description: proj.description || '', thumbnail: proj.thumbnail || null, lastModified: proj.lastModified || Date.now(), workspaceIds: wsIds, activeTab: proj.activeTab || wsIds[0] || '', nextId: proj.nextId || 1, reminders: proj.reminders || [] }).catch(() => {});
+                for (const ws of (proj.workspaces || [])) {
+                  saveWorkspaceToFirestore(proj.id, ws.id, { id: ws.id, name: ws.name || 'Workspace', nodes: ws.nodes || [], edges: ws.edges || [], groups: ws.groups || [], pins: ws.pins || [], images: ws.images || [], lastModified: Date.now() }).catch(() => {});
+                }
+                saveTasksToFirestore(proj.id, { tasks: proj.tasks || [], taskGroups: proj.taskGroups || [] }).catch(() => {});
+              }
+            }
+            saveMeta({ activeProjectId: restoredDefault, defaultProjectId: restoredDefault, schemaVersion: 2 });
+            if (isFirebaseConfigured()) saveUserMeta({ activeProjectId: restoredDefault, defaultProjectId: restoredDefault }).catch(() => {});
+
+            const defaultProj = migratedProjects.find(p => p.id === restoredDefault) || migratedProjects[0];
+            if (defaultProj) {
+              setWorkspaces(defaultProj.workspaces || []);
+              setActiveTab(defaultProj.activeTab || defaultProj.workspaces?.[0]?.id || '');
+              setNextId(defaultProj.nextId || 10);
+              setTasks(normalizeTasks(defaultProj.tasks || []));
+              const restoredTaskGroups = defaultProj.taskGroups || [{ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' }];
+              setTaskGroups(restoredTaskGroups.map((g, i) => ({
+                ...g,
+                color: g.color || GROUP_COLORS[i % GROUP_COLORS.length].id,
+              })));
+            }
+          } catch (restoreErr) {
+            setProjects(previousProjects);
+            setErrorMessage("Import failed. Previous data has been restored.");
+          }
+        } else {
+          setErrorMessage("Invalid backup file format.");
+        }
+      } catch (err) {
+        setErrorMessage("Failed to read ZIP file.");
+      }
+      e.target.value = null;
+      return;
+    }
+
+    // Handle JSON files (existing behavior)
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
@@ -5335,8 +5458,8 @@ export default function WorkflowApp() {
 
           <div className="w-px h-5 sm:h-6 bg-slate-200 mx-0.5 sm:mx-1"></div>
 
-          <input type="file" accept=".json" ref={fileInputRef} onChange={handleImport} className="hidden" />
-          <input type="file" accept=".json" ref={fullBackupInputRef} onChange={importAllData} className="hidden" />
+          <input type="file" accept=".zip,.json" ref={fileInputRef} onChange={handleImport} className="hidden" />
+          <input type="file" accept=".zip,.json" ref={fullBackupInputRef} onChange={importAllData} className="hidden" />
           <input type="file" accept=".json" ref={partialImportInputRef} onChange={handlePartialImportFile} className="hidden" />
           <button
             onClick={() => setShowMoreMenu(!showMoreMenu)}
@@ -6801,6 +6924,18 @@ export default function WorkflowApp() {
             <p className="text-slate-500 mb-6 text-xs leading-relaxed">{errorMessage}</p>
             <div className="flex justify-end">
               <button className="px-4 py-2 text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors" onClick={() => setErrorMessage('')}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {warningMessage && (
+        <div className="absolute inset-0 bg-slate-900/40 z-[100] flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full mx-4 border border-amber-200 animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-amber-600 mb-1">Export Warning</h3>
+            <p className="text-slate-500 mb-6 text-xs leading-relaxed">{warningMessage}</p>
+            <div className="flex justify-end">
+              <button className="px-4 py-2 text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors" onClick={() => setWarningMessage('')}>Close</button>
             </div>
           </div>
         </div>

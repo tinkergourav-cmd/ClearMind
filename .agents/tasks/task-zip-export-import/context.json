@@ -1,0 +1,22 @@
+{
+  "project_type": "React Vite SPA with Firebase backend",
+  "language": "JavaScript (JSX)",
+  "build_system": "Vite (via npm scripts)",
+  "test_framework": "None configured (no test dependencies in package.json)",
+  "build_command": "npm run build",
+  "test_command": null,
+  "verification_instructions": "Run 'npm run build' to confirm no compilation errors. Manual testing required for runtime behavior.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "npm install",
+  "environment_constraints": "Open internet - can install npm packages. No test suite exists.",
+  "contribution_requirements": null,
+  "key_patterns": "Single-file React app (App.jsx ~7000+ lines). Export functions (exportSingleProject, exportAllData) are defined as local functions inside the WorkflowApp component. Import functions (handleImport, importAllData) read JSON files and restore state. Images in workspace have shape: { id, x, y, width, height, url (Firebase Storage URL), groupId, workspaceId }. Firebase Storage uploads via imageStorageService.js (uploadImage, deleteImage). The persistenceService.js provides hydrateProject() which assembles full project data including all workspaces and tasks.",
+  "relevant_files": [
+    "src/App.jsx",
+    "src/imageStorageService.js",
+    "src/persistenceService.js",
+    "src/firebase.js",
+    "package.json"
+  ],
+  "directory_structure": "src/ - all source (App.jsx is the monolith component, services split out to separate files). public/ - static assets. No tests directory exists."
+}
