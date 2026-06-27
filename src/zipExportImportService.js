@@ -62,6 +62,7 @@ function downloadBlob(blob, filename) {
  * 
  * @param {object} projectData - The full hydrated project data.
  * @param {string} projectName - The project name (used for the ZIP filename).
+ * @returns {{ failedImageCount: number }} Result with the number of images that could not be included.
  */
 export async function exportProjectAsZip(projectData, projectName) {
   const zip = new JSZip();
@@ -80,6 +81,9 @@ export async function exportProjectAsZip(projectData, projectName) {
       return { imageId: image.id, blob };
     })
   );
+
+  // Count images that failed to download
+  const failedImageCount = downloads.filter(d => d.blob === null).length;
 
   // Build a map of imageId -> { blob, filename }
   const imageMap = new Map();
@@ -115,12 +119,15 @@ export async function exportProjectAsZip(projectData, projectName) {
   const zipBlob = await zip.generateAsync({ type: 'blob' });
   const safeName = projectName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
   downloadBlob(zipBlob, `${safeName}.zip`);
+
+  return { failedImageCount };
 }
 
 /**
  * Export all projects as a full backup ZIP file.
  * 
  * @param {object} backupData - The full backup object ({ type, version, exportDate, defaultProjectId, projects }).
+ * @returns {{ failedImageCount: number }} Result with the number of images that could not be included.
  */
 export async function exportAllDataAsZip(backupData) {
   const zip = new JSZip();
@@ -145,6 +152,9 @@ export async function exportAllDataAsZip(backupData) {
       return { imageId: image.id, projectId, blob };
     })
   );
+
+  // Count images that failed to download
+  const failedImageCount = downloads.filter(d => d.blob === null).length;
 
   // Build a composite key (projectId/imageId) -> { blob, filename } map
   const imageMap = new Map();
@@ -184,6 +194,8 @@ export async function exportAllDataAsZip(backupData) {
   const zipBlob = await zip.generateAsync({ type: 'blob' });
   const dateStr = new Date().toISOString().slice(0, 10);
   downloadBlob(zipBlob, `thoughtflow-backup-${dateStr}.zip`);
+
+  return { failedImageCount };
 }
 
 /**
