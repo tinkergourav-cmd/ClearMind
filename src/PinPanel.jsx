@@ -35,6 +35,7 @@ export default function PinPanel({
   tasks = [],
   pinGroups = [],
   onUpdatePinGroups,
+  isPreviewMode = false,
 }) {
   // --- State ---
   const [searchQuery, setSearchQuery] = useState('');
@@ -311,6 +312,7 @@ export default function PinPanel({
             <Layers className="w-3.5 h-3.5" />
           </button>
           {/* Delete mode toggle */}
+          {!isPreviewMode && (
           <button
             onClick={() => { if (deleteMode) cancelDeleteMode(); else setDeleteMode(true); }}
             className={`p-1.5 rounded-md border transition-colors ${deleteMode ? 'bg-red-50 border-red-300 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-500 hover:text-red-500'}`}
@@ -318,6 +320,7 @@ export default function PinPanel({
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
+          )}
         </div>
       </div>
 

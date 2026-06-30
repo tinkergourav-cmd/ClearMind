@@ -1,0 +1,7 @@
+{
+  "task_id": "task-edit-preview-mode",
+  "task_description": "Implement a global Edit Mode / Preview Mode feature. Preview Mode makes the project read-only: users can navigate, zoom, pan, read content, and view data, but cannot create, edit, move, resize, delete, or modify anything. No database writes should occur in Preview Mode. A toggle button in the header shows and switches between modes.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}

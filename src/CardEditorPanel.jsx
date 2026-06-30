@@ -16,7 +16,7 @@ const THEME_OPTIONS = [
   { key: 'slate', name: 'Neutral Slate', color: '#e2e8f0' },
 ];
 
-export default function CardEditorPanel({ selectedNode, onUpdateNode, onSnapshot, onClose }) {
+export default function CardEditorPanel({ selectedNode, onUpdateNode, onSnapshot, onClose, isPreviewMode }) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [theme, setTheme] = useState('blue');
@@ -53,18 +53,21 @@ export default function CardEditorPanel({ selectedNode, onUpdateNode, onSnapshot
   const currentThemeColor = THEME_OPTIONS.find((opt) => opt.key === theme)?.color || '#bfdbfe';
 
   const handleTitleChange = (e) => {
+    if (isPreviewMode) return;
     const newTitle = e.target.value;
     setTitle(newTitle);
     onUpdateNode({ title: newTitle });
   };
 
   const handleContentChange = (e) => {
+    if (isPreviewMode) return;
     const newContent = e.target.value;
     setContent(newContent);
     onUpdateNode({ content: newContent });
   };
 
   const handleThemeChange = (newTheme) => {
+    if (isPreviewMode) return;
     if (newTheme === theme) return;
     onSnapshot();
     setTheme(newTheme);

@@ -1,0 +1,23 @@
+{
+  "project_type": "React 18 single-page application with Vite 6 bundler",
+  "language": "JavaScript (JSX)",
+  "build_system": "Vite 6 with @vitejs/plugin-react. No test framework configured.",
+  "test_framework": "None - no test runner or test files exist in the project",
+  "build_command": "npm run build",
+  "test_command": "npm run build (build is the only verification available since no tests exist)",
+  "verification_instructions": "1. Run npm install to install dependencies. 2. Run npm run build to verify the project compiles without errors.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "cd /projects/sandbox/ClearMind && npm install",
+  "environment_constraints": "No test framework. Verification is limited to successful Vite build. No Docker.",
+  "contribution_requirements": "No CONTRIBUTING.md exists. Follow existing code patterns in App.jsx.",
+  "key_patterns": "The app is a single massive component (WorkflowApp in App.jsx, 7178 lines). State is managed via React useState hooks. There is already an editMode state variable (line 558) that controls inline text editing on cards. Persistence is handled by three debounced auto-save useEffects that watch state changes and write to localStorage + Firestore. The persistence layer uses createDebouncedSaver from persistenceService.js. Key editing functions: addNode, deleteNode, duplicateNode, updateNode, updateActiveWorkspace, createGroup, deleteGroup, addPin. Drag/resize handlers: handlePointerDownMain, handlePointerMove, handlePointerUp. Context menus: contextMenu (canvas background), nodeContextMenu (card right-click), groupContextMenu (group right-click). The 'M' key toggles editMode. UI has a header toolbar at line 5285.",
+  "relevant_files": [
+    "src/App.jsx",
+    "src/persistenceService.js",
+    "src/CardEditorPanel.jsx",
+    "src/FullTaskManager.jsx",
+    "src/PinPanel.jsx",
+    "src/ReminderPanel.jsx"
+  ],
+  "directory_structure": "Root: index.html, package.json, vite.config.js, tailwind.config.js. src/: App.jsx (main component), main.jsx (entry), firebase.js (config), persistenceService.js (storage), imageStorageService.js, CardEditorPanel.jsx, FullTaskManager.jsx, PinPanel.jsx, ReminderPanel.jsx, MiniMap.jsx, MarkdownRenderer.jsx, workspaceValidator.js, taskConstants.js, index.css."
+}
