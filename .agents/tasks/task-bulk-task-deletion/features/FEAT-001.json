@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Add bulk task selection and deletion workflow to the Task panel (FullTaskManager.jsx), following the existing pattern in PinPanel.jsx. When tasks are bulk deleted, their linked pins should be converted to standalone pins (pinGroupId changed to 'default') rather than deleted.",
+  "status": "completed",
+  "steps": [
+    "In src/App.jsx, add a new function `bulkDeleteTasks(taskIds)` that: (a) for each task with a locationPinId, updates the pin's pinGroupId to 'default' in the workspace (converting it to a standalone pin) instead of deleting it, and (b) removes all selected tasks from the tasks array. Pass this as `onBulkDeleteTasks` prop to FullTaskManager.",
+    "In src/FullTaskManager.jsx, add state variables: `deleteMode` (boolean, default false), `selectedForDelete` (Set of task IDs), `showDeleteConfirm` (boolean, default false).",
+    "In src/FullTaskManager.jsx toolbar (the action buttons area in the header), add a Delete toggle button (using Trash2 icon from lucide-react, already imported) that toggles delete mode on/off, following the PinPanel.jsx pattern for styling (red highlight when active, slate when inactive).",
+    "When deleteMode is true, show a selection bar below the toolbar (similar to PinPanel.jsx) with: 'Select All'/'Deselect All' toggle button, count of selected items, and a 'Delete (N)' button that shows the confirmation dialog when clicked.",
+    "When deleteMode is true, render a checkbox on each task row (before or alongside the status column). Clicking the row or checkbox should toggle the task in/out of selectedForDelete. Follow PinPanel.jsx checkbox styling (red circle with Check icon when selected, bordered circle when not).",
+    "Add a confirmation modal (matching PinPanel.jsx design) that shows when showDeleteConfirm is true. It should display the count of tasks to be deleted, warn that this cannot be undone, mention that linked pins will be converted to standalone, and have Cancel/Delete All buttons.",
+    "On confirm, call `onBulkDeleteTasks(Array.from(selectedForDelete))`, then reset deleteMode, selectedForDelete, and showDeleteConfirm.",
+    "Add `onBulkDeleteTasks` to the FullTaskManager component's props destructuring.",
+    "In src/App.jsx where FullTaskManager is rendered, pass the new `onBulkDeleteTasks` prop pointing to the bulkDeleteTasks function."
+  ],
+  "acceptance_criteria": [
+    "A Delete button appears in the Task panel toolbar",
+    "Clicking the Delete button enables selection mode with checkboxes on each task",
+    "Users can select/deselect individual tasks and use Select All",
+    "A confirmation step is shown before deletion proceeds",
+    "Selected tasks are deleted in one action when confirmed",
+    "Any linked pins (task.locationPinId) are converted to standalone pins (pinGroupId set to 'default') rather than being deleted",
+    "The app builds without errors via `npm run build`"
+  ],
+  "verification": [
+    "Run `npm run build` and confirm it succeeds with no errors"
+  ],
+  "blocked_reason": null,
+  "findings": "Build succeeds cleanly. Used npm install before npm run build since node_modules was not present. The pattern follows PinPanel.jsx closely. The allVisibleTaskIds useMemo depends on sortedGroups which is not memoized (just a sorted copy), so it recalculates on each render - acceptable for task panel usage."
+}

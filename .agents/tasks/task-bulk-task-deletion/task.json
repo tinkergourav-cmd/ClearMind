@@ -1,0 +1,7 @@
+{
+  "task_id": "task-bulk-task-deletion",
+  "task_description": "Add bulk task selection and deletion workflow to the Task panel, following the existing bulk delete pattern in PinPanel.jsx. Linked pins should be converted to standalone pins rather than deleted.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}
