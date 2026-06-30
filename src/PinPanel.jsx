@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, MapPin, Eye, EyeOff, Search, ChevronDown, Trash2, Pencil } from 'lucide-react';
+import { X, MapPin, Eye, EyeOff, Search, ChevronDown, Trash2, Pencil, CheckSquare, Square } from 'lucide-react';
 
 const PIN_ICONS = [
   { value: '\u2b50', label: 'Important' },
@@ -24,6 +24,7 @@ export default function PinPanel({
   onToggleAllVisibility,
   showPanel,
   onClose,
+  tasks,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsedSections, setCollapsedSections] = useState({});
@@ -31,8 +32,17 @@ export default function PinPanel({
   const [editingName, setEditingName] = useState('');
   const [editingNote, setEditingNote] = useState('');
   const [editingIcon, setEditingIcon] = useState('');
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [selectedPinIds, setSelectedPinIds] = useState(new Set());
 
   if (!showPanel) return null;
+
+  // Helper: check if a pin is an orphaned task-pin (was linked to a task that no longer exists)
+  const isOrphanedTaskPin = (pin) => {
+    if (!pin.id.startsWith('pin-task-')) return false;
+    // Check if any task still references this pin
+    return !(tasks || []).some(t => t.locationPinId === pin.id);
+  };
 
   const toggleSection = (wsId) => {
     setCollapsedSections(prev => ({ ...prev, [wsId]: !prev[wsId] }));
@@ -84,6 +94,30 @@ export default function PinPanel({
         </div>
         <div className="flex items-center gap-1">
           <button
+            onClick={() => { setBulkSelectMode(!bulkSelectMode); setSelectedPinIds(new Set()); }}
+            className={`p-1.5 rounded-lg transition-colors ${bulkSelectMode ? 'bg-rose-100 text-rose-600' : 'hover:bg-slate-200 text-slate-500 hover:text-slate-700'}`}
+            title={bulkSelectMode ? 'Cancel Bulk Select' : 'Bulk Select'}
+          >
+            <CheckSquare className="w-3.5 h-3.5" />
+          </button>
+          {bulkSelectMode && selectedPinIds.size > 0 && (
+            <button
+              onClick={() => {
+                selectedPinIds.forEach(pinId => {
+                  // Find which workspace contains this pin
+                  const ws = workspaces.find(w => (w.pins || []).some(p => p.id === pinId));
+                  if (ws) onDeletePin(pinId, ws.id);
+                });
+                setSelectedPinIds(new Set());
+                setBulkSelectMode(false);
+              }}
+              className="p-1.5 hover:bg-red-100 rounded-lg text-red-500 hover:text-red-700 transition-colors"
+              title={`Delete ${selectedPinIds.size} selected pins`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
             onClick={() => onToggleAllVisibility(!allVisible)}
             className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500 hover:text-slate-700 transition-colors"
             title={allVisible ? 'Hide All Pins' : 'Show All Pins'}
@@ -118,6 +152,26 @@ export default function PinPanel({
           )}
         </div>
       </div>
+
+      {/* Bulk select count */}
+      {bulkSelectMode && (
+        <div className="px-3 py-1.5 bg-rose-50 border-b border-rose-100 flex items-center justify-between shrink-0">
+          <span className="text-[11px] font-medium text-rose-700">
+            {selectedPinIds.size} pin{selectedPinIds.size !== 1 ? 's' : ''} selected
+          </span>
+          <button
+            onClick={() => {
+              // Select all visible pins
+              const allPinIds = new Set();
+              filteredWorkspaces.forEach(w => w.pins.forEach(p => allPinIds.add(p.id)));
+              setSelectedPinIds(allPinIds);
+            }}
+            className="text-[10px] font-semibold text-rose-600 hover:text-rose-800 transition-colors"
+          >
+            Select All
+          </button>
+        </div>
+      )}
 
       {/* Pin List */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -198,9 +252,30 @@ export default function PinPanel({
                     /* Display Mode */
                     <div
                       className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer group transition-colors"
-                      onClick={() => onNavigateToPin(pin.id, ws.id)}
+                      onClick={() => {
+                        if (bulkSelectMode) {
+                          setSelectedPinIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(pin.id)) next.delete(pin.id);
+                            else next.add(pin.id);
+                            return next;
+                          });
+                        } else {
+                          onNavigateToPin(pin.id, ws.id);
+                        }
+                      }}
                       title={pin.note || pin.name}
                     >
+                      {/* Bulk select checkbox */}
+                      {bulkSelectMode && (
+                        <span className="w-4 h-4 flex items-center justify-center shrink-0">
+                          {selectedPinIds.has(pin.id) ? (
+                            <CheckSquare className="w-3.5 h-3.5 text-rose-600" />
+                          ) : (
+                            <Square className="w-3.5 h-3.5 text-slate-400" />
+                          )}
+                        </span>
+                      )}
                       {/* Icon only */}
                       <span className="w-5 h-5 flex items-center justify-center shrink-0 text-sm">
                         {pin.icon}
@@ -209,6 +284,9 @@ export default function PinPanel({
                       {/* Name */}
                       <span className="flex-1 min-w-0 text-xs font-medium text-slate-700 truncate">
                         {pin.name}
+                        {isOrphanedTaskPin(pin) && (
+                          <span className="ml-1 text-[9px] text-amber-500 font-normal">(orphaned)</span>
+                        )}
                       </span>
 
                       {/* Note indicator */}

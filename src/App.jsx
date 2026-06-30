@@ -4167,14 +4167,8 @@ export default function WorkflowApp() {
 
   const deleteTask = (taskId) => {
     setTasks(prev => {
-      const task = prev.find(t => t.id === taskId);
-      if (task && task.locationPinId) {
-        // Remove the orphaned pin from all workspaces
-        setWorkspaces(wsArr => wsArr.map(ws => ({
-          ...ws,
-          pins: (ws.pins || []).filter(p => p.id !== task.locationPinId),
-        })));
-      }
+      // When a task is deleted, its linked pin remains on canvas as a normal pin
+      // (easy to find and delete from Pin Panel). We do NOT auto-remove it.
       return prev.filter(t => t.id !== taskId);
     });
   };
@@ -6754,6 +6748,7 @@ export default function WorkflowApp() {
             onToggleAllVisibility={toggleAllPinsVisibility}
             showPanel={showPinPanel}
             onClose={() => setShowPinPanel(false)}
+            tasks={tasks}
           />
         )}
 
