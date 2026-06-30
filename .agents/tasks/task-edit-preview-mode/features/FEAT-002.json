@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Implement the global Edit Mode / Preview Mode feature as a foundational application state. This replaces the existing editMode state with a full appMode system that gates ALL editing operations, blocks database writes in Preview Mode, and adds a visible mode toggle in the header.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1: Rename the existing editMode state (line 558 of App.jsx) to appMode with values 'edit' and 'preview'. Update the existing M-key toggle (line 2026-2041) to work with the new state. Create a derived isPreviewMode constant for convenience (const isPreviewMode = appMode === 'preview').",
     "Step 2: Add a visible mode toggle button in the header toolbar (around line 5285 in App.jsx, in the right section near undo/redo buttons). The toggle should show the current mode clearly using the Eye icon (lucide-react) for Preview and Pencil icon for Edit, with distinct colors (e.g., amber/orange for Preview, indigo/blue for Edit). Include mode label text visible on sm+ screens.",
@@ -51,5 +51,5 @@
     "Run npm run build and confirm exit code is 0 with no compilation errors"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 20 steps implemented successfully. Build passes. Key architectural decisions: (1) Used derived const isPreviewMode from appMode state for backward compatibility with existing editMode checks. (2) Gated functions directly rather than wrapping updateActiveWorkspace to avoid breaking read operations. (3) Used early return pattern consistently. (4) handleContextMenu useCallback dependency array updated to include isPreviewMode. (5) Debounced savers are cancelled on mode switch to prevent stale saves. (6) hydrateProject reloads data on switch back to Edit Mode."
 }
