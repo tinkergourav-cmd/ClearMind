@@ -512,6 +512,9 @@ export default function WorkflowApp() {
   // --- Task System States ---
   const [tasks, setTasks] = useState([]);
   const [taskGroups, setTaskGroups] = useState([{ id: 'inbox', name: 'Inbox', sortOrder: 0, color: 'slate' }]);
+
+  // --- Pin Groups State ---
+  const [pinGroups, setPinGroups] = useState([]);
   const [taskPanelMode, setTaskPanelMode] = useState('closed'); // 'closed' | 'panel' | 'fullscreen'
   const [isSelectingTaskLocation, setIsSelectingTaskLocation] = useState(false);
   const [selectingLocationForTaskId, setSelectingLocationForTaskId] = useState(null);
@@ -957,6 +960,10 @@ export default function WorkflowApp() {
           const loadedReminders = activeProj.reminders || DEFAULT_REMINDERS;
           setReminders(loadedReminders);
 
+          // Load pin groups data
+          const loadedPinGroups = activeProj.pinGroups || [];
+          setPinGroups(loadedPinGroups);
+
           // Load task data
           const loadedTasks = activeProj.tasks || [];
           setTasks(normalizeTasks(loadedTasks));
@@ -1334,7 +1341,7 @@ export default function WorkflowApp() {
     debouncedMetaSaverRef.current(() => {
       const projMeta = loadProjectMeta(activeProjectId);
       if (projMeta) {
-        const updatedMeta = { ...projMeta, nextId, reminders, lastModified: Date.now() };
+        const updatedMeta = { ...projMeta, nextId, reminders, pinGroups, lastModified: Date.now() };
         saveProjectMeta(activeProjectId, updatedMeta);
         if (isFirebaseConfigured()) {
           setSyncStatus('syncing');
@@ -1345,12 +1352,12 @@ export default function WorkflowApp() {
       }
       // Update in-memory projects
       setProjects(prev => prev.map(p => p.id === activeProjectId
-        ? { ...p, nextId, reminders, lastModified: Date.now() }
+        ? { ...p, nextId, reminders, pinGroups, lastModified: Date.now() }
         : p
       ));
     });
     return () => debouncedMetaSaverRef.current.cancel();
-  }, [nextId, reminders, initialized, activeProjectId]);
+  }, [nextId, reminders, pinGroups, initialized, activeProjectId]);
 
   // Password save effect
   useEffect(() => {
@@ -2552,6 +2559,7 @@ export default function WorkflowApp() {
     setActiveTab((hydrated && hydrated.activeTab) || (targetWorkspaces.length > 0 ? targetWorkspaces[0].id : ''));
     setNextId((hydrated && hydrated.nextId) || 10);
     setReminders((hydrated && hydrated.reminders) || DEFAULT_REMINDERS);
+    setPinGroups((hydrated && hydrated.pinGroups) || []);
     setTasks(normalizeTasks(hydratedTasks));
     const switchedTaskGroups = hydratedTaskGroups.length > 0
       ? hydratedTaskGroups
@@ -2640,6 +2648,7 @@ export default function WorkflowApp() {
     setActiveTab((hydrated && hydrated.activeTab) || (targetWorkspaces.length > 0 ? targetWorkspaces[0].id : ''));
     setNextId((hydrated && hydrated.nextId) || 10);
     setReminders((hydrated && hydrated.reminders) || DEFAULT_REMINDERS);
+    setPinGroups((hydrated && hydrated.pinGroups) || []);
     setTasks(normalizeTasks(hydratedTasks));
     const cycledTaskGroups = hydratedTaskGroups.length > 0
       ? hydratedTaskGroups
@@ -2952,6 +2961,7 @@ export default function WorkflowApp() {
       setWorkspaces(nextWorkspaces);
       setActiveTab((hydrated && hydrated.activeTab) || (nextWorkspaces.length > 0 ? nextWorkspaces[0].id : ''));
       setNextId((hydrated && hydrated.nextId) || 10);
+      setPinGroups((hydrated && hydrated.pinGroups) || []);
       setTasks(normalizeTasks(hydratedTasks));
       const nextTaskGroups = hydratedTaskGroups.length > 0
         ? hydratedTaskGroups
@@ -6754,6 +6764,9 @@ export default function WorkflowApp() {
             onToggleAllVisibility={toggleAllPinsVisibility}
             showPanel={showPinPanel}
             onClose={() => setShowPinPanel(false)}
+            tasks={tasks}
+            pinGroups={pinGroups}
+            onUpdatePinGroups={setPinGroups}
           />
         )}
 
