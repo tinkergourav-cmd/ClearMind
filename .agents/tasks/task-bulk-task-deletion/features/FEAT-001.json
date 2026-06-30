@@ -27,5 +27,5 @@
     "Run `npm run build` and confirm it succeeds with no errors"
   ],
   "blocked_reason": null,
-  "findings": "Build succeeds cleanly. Used npm install before npm run build since node_modules was not present. The pattern follows PinPanel.jsx closely. The allVisibleTaskIds useMemo depends on sortedGroups which is not memoized (just a sorted copy), so it recalculates on each render - acceptable for task panel usage."
+  "findings": "Build succeeds cleanly. Used npm install before npm run build since node_modules was not present. The pattern follows PinPanel.jsx closely. Review feedback addressed: (1) moved setWorkspaces call outside setTasks updater in bulkDeleteTasks to avoid side effects inside a state updater, (2) wrapped sortedGroups in useMemo with [groups] dependency so allVisibleTaskIds memo works correctly."
 }
