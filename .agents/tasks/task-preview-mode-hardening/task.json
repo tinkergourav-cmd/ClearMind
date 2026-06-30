@@ -1,0 +1,14 @@
+{
+  "task_id": "task-preview-mode-hardening",
+  "task_description": "Fix the connection deletion bug in Preview Mode and add comprehensive isPreviewMode guards to ALL remaining unguarded mutation paths in the application. The goal is to make Preview Mode a true read-only viewer where no data modification is possible through any interaction path.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "skipped",
+    "test_quality": "skipped",
+    "docker_build": "skipped",
+    "summary": "npm run build passes successfully. Guard count increased from 44 to 60 (16 new guards added). All mutation functions and inline handlers now have isPreviewMode guards. No test framework configured in project."
+  }
+}
