@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Implement Preview Auto-Fit: In preview mode, groups visually shrink to their content bounds without modifying any persisted data. Position remains stable (top-left corner stays the same), only width/height shrink inward from right and bottom edges. Also update getConnectionPoint to use compact dimensions in preview mode so edges terminate at the visually compact border.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Step 1: Add `useMemo` to the React import at line 1 of src/App.jsx (currently imports useState, useRef, useEffect, useCallback).",
     "Step 2: Create a `computePreviewBounds` function (or useMemo hook) that computes tight bounding boxes for all groups. For groups WITH children: use the same bounding-box algorithm as computeLayout lines 285-330 but WITHOUT the Math.max floor against manualWidth/manualHeight. For groups WITHOUT children: use a compact fallback like 200x80. The function takes (groups, nodes) and returns a Map/object of groupId -> { width, height } (position x,y stays the same as stored).",
