@@ -1571,6 +1571,7 @@ export default function WorkflowApp() {
   }, [nodes, activeTab]);
 
   const cutNode = useCallback((nodeId) => {
+    if (isPreviewMode) return;
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
     const clipData = {
@@ -1582,7 +1583,7 @@ export default function WorkflowApp() {
     };
     localStorage.setItem('nexus-clipboard', JSON.stringify(clipData));
     localStorage.removeItem('nexus-clipboard-group');
-  }, [nodes, activeTab]);
+  }, [nodes, activeTab, isPreviewMode]);
 
   const pasteNode = useCallback((targetX, targetY) => {
     if (isPreviewMode) return;
@@ -1700,6 +1701,7 @@ export default function WorkflowApp() {
   }, [groups, nodes, edges, activeTab]);
 
   const cutGroup = useCallback((groupId) => {
+    if (isPreviewMode) return;
     const group = groups.find(g => g.id === groupId);
     if (!group) return;
     const { descendantGroupIds, descendantNodeIds } = getDescendants(groupId, groups, nodes);
@@ -1727,7 +1729,7 @@ export default function WorkflowApp() {
     };
     localStorage.setItem('nexus-clipboard-group', JSON.stringify(clipData));
     localStorage.removeItem('nexus-clipboard');
-  }, [groups, nodes, edges, activeTab]);
+  }, [groups, nodes, edges, activeTab, isPreviewMode]);
 
   const pasteGroup = useCallback((targetX, targetY) => {
     if (isPreviewMode) return;
@@ -3339,6 +3341,7 @@ export default function WorkflowApp() {
   };
 
   const executePartialImport = () => {
+    if (isPreviewMode) return;
     if (!partialImportData) return;
     takeSnapshot();
 
@@ -3960,6 +3963,7 @@ export default function WorkflowApp() {
   const handleCanvasImageDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isPreviewMode) return;
     const file = e.dataTransfer?.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
 
@@ -4171,11 +4175,13 @@ export default function WorkflowApp() {
   useEffect(() => { addPinRef.current = addPin; });
 
   const updatePin = (pinId, updates, workspaceId) => {
+    if (isPreviewMode) return;
     const targetId = workspaceId || activeTab;
     setWorkspaces(prev => prev.map(ws => ws.id === targetId ? { ...ws, pins: (ws.pins || []).map(p => p.id === pinId ? { ...p, ...updates } : p) } : ws));
   };
 
   const deletePin = (pinId, workspaceId) => {
+    if (isPreviewMode) return;
     const targetId = workspaceId || activeTab;
     // Clear locationPinId/locationWorkspaceId on any task referencing this pin
     setTasks(prev => prev.map(t =>
@@ -4189,11 +4195,13 @@ export default function WorkflowApp() {
   };
 
   const togglePinVisibility = (pinId, workspaceId) => {
+    if (isPreviewMode) return;
     const targetId = workspaceId || activeTab;
     setWorkspaces(prev => prev.map(ws => ws.id === targetId ? { ...ws, pins: (ws.pins || []).map(p => p.id === pinId ? { ...p, visibility_status: !p.visibility_status } : p) } : ws));
   };
 
   const toggleAllPinsVisibility = (visible) => {
+    if (isPreviewMode) return;
     updateActiveWorkspace(ws => ({
       pins: (ws.pins || []).map(p => ({ ...p, visibility_status: visible })),
     }));
@@ -4293,6 +4301,7 @@ export default function WorkflowApp() {
   };
 
   const reorderTask = (taskId, direction, partitionBy = 'section', targetPosition) => {
+    if (isPreviewMode) return;
     setTasks(prev => {
       const task = prev.find(t => t.id === taskId);
       if (!task) return prev;
@@ -4370,6 +4379,7 @@ export default function WorkflowApp() {
 
   // --- Task Group CRUD ---
   const addTaskGroup = (name, color) => {
+    if (isPreviewMode) return;
     setTaskGroups(prev => {
       const assignedColor = color || GROUP_COLORS[prev.length % GROUP_COLORS.length].id;
       const newGroup = {
@@ -4383,14 +4393,17 @@ export default function WorkflowApp() {
   };
 
   const renameTaskGroup = (groupId, newName) => {
+    if (isPreviewMode) return;
     setTaskGroups(prev => prev.map(g => g.id === groupId ? { ...g, name: newName } : g));
   };
 
   const updateTaskGroupColor = (groupId, color) => {
+    if (isPreviewMode) return;
     setTaskGroups(prev => prev.map(g => g.id === groupId ? { ...g, color } : g));
   };
 
   const deleteTaskGroup = (groupId) => {
+    if (isPreviewMode) return;
     if (groupId === 'inbox') return;
     // Move tasks from deleted group to inbox
     setTasks(prev => prev.map(t => (t.groupId === groupId ? { ...t, groupId: 'inbox' } : t)));
@@ -4398,6 +4411,7 @@ export default function WorkflowApp() {
   };
 
   const reorderTaskGroup = (groupId, direction) => {
+    if (isPreviewMode) return;
     setTaskGroups(prev => {
       const sorted = [...prev].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       const idx = sorted.findIndex(g => g.id === groupId);
@@ -4672,8 +4686,8 @@ export default function WorkflowApp() {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const clearAllNodes = () => { takeSnapshot(); updateActiveWorkspace(() => ({ nodes: [], edges: [], groups: [] })); setShowConfirmClear(false); };
-  const removeEdge = (edgeId) => { takeSnapshot(); updateActiveWorkspace(ws => ({ edges: ws.edges.filter(e => e.id !== edgeId) })); };
+  const clearAllNodes = () => { if (isPreviewMode) return; takeSnapshot(); updateActiveWorkspace(() => ({ nodes: [], edges: [], groups: [] })); setShowConfirmClear(false); };
+  const removeEdge = (edgeId) => { if (isPreviewMode) return; takeSnapshot(); updateActiveWorkspace(ws => ({ edges: ws.edges.filter(e => e.id !== edgeId) })); };
 
   const drawCurve = (x1, y1, x2, y2) => {
     const dx = x2 - x1;
@@ -5815,6 +5829,7 @@ export default function WorkflowApp() {
                   onPointerUp={(e) => {
                     if (connecting && connecting.sourceId !== group.id) {
                       e.stopPropagation();
+                      if (isPreviewMode) { setConnecting(null); setConnectHoverNodeId(null); return; }
                       const exists = edges.some(edge => edge.source === connecting.sourceId && edge.target === group.id);
                       if (!exists) {
                         takeSnapshot();
@@ -5906,7 +5921,7 @@ export default function WorkflowApp() {
                   <div 
                     className={`absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full cursor-crosshair z-30 flex items-center justify-center ${connecting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all`}
                     onPointerDown={(e) => e.stopPropagation()} 
-                    onPointerUp={(e) => { e.stopPropagation(); if (connecting) { if (connecting.sourceId !== group.id) { const exists = edges.some(edge => edge.source === connecting.sourceId && edge.target === group.id); if (!exists) { takeSnapshot(); updateActiveWorkspace(ws => ({ edges: [...ws.edges, { id: `e-${Date.now()}`, source: connecting.sourceId, target: group.id, workspaceId: activeTab }] })); } } setConnecting(null); setConnectHoverNodeId(null); } }}
+                    onPointerUp={(e) => { e.stopPropagation(); if (connecting) { if (isPreviewMode) { setConnecting(null); setConnectHoverNodeId(null); return; } if (connecting.sourceId !== group.id) { const exists = edges.some(edge => edge.source === connecting.sourceId && edge.target === group.id); if (!exists) { takeSnapshot(); updateActiveWorkspace(ws => ({ edges: [...ws.edges, { id: `e-${Date.now()}`, source: connecting.sourceId, target: group.id, workspaceId: activeTab }] })); } } setConnecting(null); setConnectHoverNodeId(null); } }}
                   >
                     <div className={`w-3 h-3 rounded-full border-2 border-white shadow ${theme.port}`} />
                   </div>
@@ -5944,7 +5959,7 @@ export default function WorkflowApp() {
                 const sourceTheme = THEMES[sourceThemeKey] || THEMES.blue;
 
                 return (
-                  <g key={edge.id} className="cursor-pointer group animate-in fade-in" onClick={(e) => { e.stopPropagation(); if (e.ctrlKey || e.metaKey) { removeEdge(edge.id); } }} style={{ pointerEvents: 'auto' }} title="Ctrl+Click to disconnect">
+                  <g key={edge.id} className="cursor-pointer group animate-in fade-in" onClick={(e) => { e.stopPropagation(); if ((e.ctrlKey || e.metaKey) && !isPreviewMode) { removeEdge(edge.id); } }} style={{ pointerEvents: 'auto' }} title="Ctrl+Click to disconnect">
                     <path d={drawCurve(startPos.x, startPos.y, endPos.x, endPos.y)} stroke="transparent" strokeWidth={24} fill="none" />
                     <path d={drawCurve(startPos.x, startPos.y, endPos.x, endPos.y)} stroke={sourceTheme.line} strokeWidth={3} fill="none" markerEnd={`url(#arrow-${sourceThemeKey})`} className="transition-all duration-300 group-hover:stroke-red-500 group-hover:stroke-[4px]" />
                   </g>
@@ -6043,6 +6058,7 @@ export default function WorkflowApp() {
                     onPointerUp={(e) => {
                       e.stopPropagation();
                       if (connecting && connecting.sourceId !== img.id) {
+                        if (isPreviewMode) { setConnecting(null); setConnectHoverNodeId(null); return; }
                         const exists = edges.some(edge => edge.source === connecting.sourceId && edge.target === img.id);
                         if (!exists) {
                           takeSnapshot();
@@ -6288,7 +6304,7 @@ export default function WorkflowApp() {
                   <div 
                     className={`absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full cursor-crosshair z-30 flex items-center justify-center ${connecting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all`}
                     onPointerDown={(e) => e.stopPropagation()} 
-                    onPointerUp={(e) => { e.stopPropagation(); if (connecting && connecting.sourceId !== node.id) { const exists = edges.some(edge => edge.source === connecting.sourceId && edge.target === node.id); if (!exists) { takeSnapshot(); updateActiveWorkspace(ws => ({ edges: [...ws.edges, { id: `e-${Date.now()}`, source: connecting.sourceId, target: node.id, workspaceId: activeTab }] })); } } setConnecting(null); setConnectHoverNodeId(null); }}
+                    onPointerUp={(e) => { e.stopPropagation(); if (connecting && connecting.sourceId !== node.id) { if (isPreviewMode) { setConnecting(null); setConnectHoverNodeId(null); return; } const exists = edges.some(edge => edge.source === connecting.sourceId && edge.target === node.id); if (!exists) { takeSnapshot(); updateActiveWorkspace(ws => ({ edges: [...ws.edges, { id: `e-${Date.now()}`, source: connecting.sourceId, target: node.id, workspaceId: activeTab }] })); } } setConnecting(null); setConnectHoverNodeId(null); }}
                   >
                     <div className={`w-3 h-3 rounded-full border-2 border-white shadow ${theme.port}`} />
                   </div>
