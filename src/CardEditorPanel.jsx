@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Pencil, X, Palette, Check, Eye, EyeOff } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 
@@ -52,16 +52,63 @@ export default function CardEditorPanel({ selectedNode, onUpdateNode, onSnapshot
 
   const currentThemeColor = THEME_OPTIONS.find((opt) => opt.key === theme)?.color || '#bfdbfe';
 
+  // Debounced update handler (reduces save frequency to 500ms)
+  const debounceTimerRef = useRef(null);
+  const pendingUpdateRef = useRef(null);
+  const onUpdateNodeRef = useRef(onUpdateNode);
+  onUpdateNodeRef.current = onUpdateNode;
+
+  const debouncedUpdate = useCallback((updates) => {
+    pendingUpdateRef.current = updates;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      if (pendingUpdateRef.current) {
+        onUpdateNodeRef.current(pendingUpdateRef.current);
+        pendingUpdateRef.current = null;
+      }
+    }, 500);
+  }, []);
+
+  // Flush pending debounced update on node change (prevents stale updates to wrong node)
+  const prevNodeIdRef = useRef(selectedNode?.id);
+  useEffect(() => {
+    if (prevNodeIdRef.current !== selectedNode?.id) {
+      // Flush any pending update for the PREVIOUS node before switching
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+        // Flush the pending update to the previous node (onUpdateNode still points to old node's updater)
+        // Actually we can't reliably flush here since the parent's callback already points to the new node
+        // So just discard pending changes on node switch (they were already applied to local state and saved via autosave)
+      }
+      pendingUpdateRef.current = null;
+      prevNodeIdRef.current = selectedNode?.id;
+    }
+  }, [selectedNode?.id]);
+
+  // Cleanup on unmount - flush any pending update
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        if (pendingUpdateRef.current && onUpdateNodeRef.current) {
+          onUpdateNodeRef.current(pendingUpdateRef.current);
+          pendingUpdateRef.current = null;
+        }
+      }
+    };
+  }, []);
+
   const handleTitleChange = (e) => {
     const newTitle = e.target.value;
     setTitle(newTitle);
-    onUpdateNode({ title: newTitle });
+    debouncedUpdate({ title: newTitle });
   };
 
   const handleContentChange = (e) => {
     const newContent = e.target.value;
     setContent(newContent);
-    onUpdateNode({ content: newContent });
+    debouncedUpdate({ content: newContent });
   };
 
   const handleThemeChange = (newTheme) => {

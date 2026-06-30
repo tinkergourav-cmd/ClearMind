@@ -21,6 +21,9 @@ import {
   MoreVertical,
   Maximize2,
   Minimize2,
+  CheckSquare,
+  Square,
+  Crosshair,
 } from 'lucide-react';
 import { GROUP_COLORS } from './taskConstants';
 
@@ -110,6 +113,10 @@ export default function FullTaskManager({
   const [renamingGroupId, setRenamingGroupId] = useState(null);
   const [renameGroupValue, setRenameGroupValue] = useState('');
   const [colorPickerGroupId, setColorPickerGroupId] = useState(null);
+
+  // Bulk selection state
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState(new Set());
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -363,6 +370,34 @@ export default function FullTaskManager({
 
         {/* Action buttons */}
         <div className="flex items-center gap-1 ml-auto shrink-0">
+          {/* Bulk Select Toggle */}
+          <button
+            onClick={() => { setBulkSelectMode(!bulkSelectMode); setSelectedTaskIds(new Set()); }}
+            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded transition-colors ${
+              bulkSelectMode ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+            }`}
+            title={bulkSelectMode ? 'Cancel Bulk Select' : 'Bulk Select Tasks'}
+          >
+            <CheckSquare className="w-3 h-3" />
+            <span className="hidden sm:inline">{bulkSelectMode ? 'Cancel' : 'Select'}</span>
+          </button>
+
+          {/* Bulk Delete Button (visible when tasks are selected) */}
+          {bulkSelectMode && selectedTaskIds.size > 0 && (
+            <button
+              onClick={() => {
+                selectedTaskIds.forEach(taskId => onDeleteTask(taskId));
+                setSelectedTaskIds(new Set());
+                setBulkSelectMode(false);
+              }}
+              className="flex items-center gap-1 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-semibold rounded transition-colors"
+              title={`Delete ${selectedTaskIds.size} selected tasks`}
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>{selectedTaskIds.size}</span>
+            </button>
+          )}
+
           {/* New Group */}
           <button
             onClick={() => {
@@ -592,9 +627,30 @@ export default function FullTaskManager({
                       className={`flex items-center px-4 py-1.5 border-b border-slate-50 cursor-pointer transition-colors border-l-2 ${
                         isEditing ? `bg-slate-50 ${colorCfg.headerBorder}` : isSelected ? `bg-indigo-50/50 border-l-transparent` : `border-l-transparent hover:bg-slate-50`
                       } ${viewMode === 'all' && task.status === 'completed' ? 'opacity-50' : ''}`}
-                      onClick={() => handleRowClick(task)}
-                      onDoubleClick={() => handleRowDoubleClick(task)}
+                      onClick={() => {
+                        if (bulkSelectMode) {
+                          setSelectedTaskIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(task.id)) next.delete(task.id);
+                            else next.add(task.id);
+                            return next;
+                          });
+                        } else {
+                          handleRowClick(task);
+                        }
+                      }}
+                      onDoubleClick={() => { if (!bulkSelectMode) handleRowDoubleClick(task); }}
                     >
+                      {/* Bulk select checkbox */}
+                      {bulkSelectMode && (
+                        <span className="w-5 shrink-0 flex items-center justify-center mr-1">
+                          {selectedTaskIds.has(task.id) ? (
+                            <CheckSquare className="w-3.5 h-3.5 text-red-600" />
+                          ) : (
+                            <Square className="w-3.5 h-3.5 text-slate-400" />
+                          )}
+                        </span>
+                      )}
                       {/* Status - readable text with dropdown */}
                       <div className={`${isPanel ? 'w-20' : 'w-24'} shrink-0 relative`} ref={statusDropdownTaskId === task.id ? statusDropdownRef : null}>
                         <button
@@ -661,16 +717,27 @@ export default function FullTaskManager({
 
                       {/* Location */}
                       <div className="w-10 shrink-0 text-center">
-                        {pinExistsForTask(task) && (
+                        {pinExistsForTask(task) ? (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              onNavigateToLocation(task.locationPinId, task.locationWorkspaceId);
+                              if (!bulkSelectMode) onNavigateToLocation(task.locationPinId, task.locationWorkspaceId);
                             }}
-                            className="text-indigo-500 hover:text-indigo-700 transition-colors inline-flex"
-                            title="Go to location"
+                            className={`transition-colors inline-flex ${bulkSelectMode ? 'text-slate-300 cursor-default' : 'text-indigo-500 hover:text-indigo-700'}`}
+                            title={bulkSelectMode ? '' : 'Go to location'}
                           >
                             <MapPin className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!bulkSelectMode) onStartLocationSelection(task.id);
+                            }}
+                            className={`transition-colors inline-flex ${bulkSelectMode ? 'text-slate-200 cursor-default' : 'text-slate-300 hover:text-indigo-500'}`}
+                            title={bulkSelectMode ? '' : 'Set location'}
+                          >
+                            <Crosshair className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
