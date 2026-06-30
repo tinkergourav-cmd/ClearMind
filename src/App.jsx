@@ -4189,6 +4189,28 @@ export default function WorkflowApp() {
     });
   };
 
+  const bulkDeleteTasks = (taskIds) => {
+    // Compute pin IDs to convert from current tasks state before entering any setter
+    const tasksToDelete = tasks.filter(t => taskIds.includes(t.id));
+    const pinIdsToConvert = tasksToDelete
+      .filter(t => t.locationPinId)
+      .map(t => t.locationPinId);
+
+    // Convert linked pins to standalone (pinGroupId = 'default')
+    if (pinIdsToConvert.length > 0) {
+      setWorkspaces(wsArr => wsArr.map(ws => ({
+        ...ws,
+        pins: (ws.pins || []).map(p =>
+          pinIdsToConvert.includes(p.id)
+            ? { ...p, pinGroupId: 'default' }
+            : p
+        ),
+      })));
+    }
+
+    setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+  };
+
   const reorderTask = (taskId, direction, partitionBy = 'section', targetPosition) => {
     setTasks(prev => {
       const task = prev.find(t => t.id === taskId);
@@ -6821,6 +6843,7 @@ export default function WorkflowApp() {
             onAddTask={addTask}
             onUpdateTask={updateTask}
             onDeleteTask={deleteTask}
+            onBulkDeleteTasks={bulkDeleteTasks}
             onReorderTask={reorderTask}
             onStartLocationSelection={startLocationSelection}
             onNavigateToLocation={navigateToTaskLocation}

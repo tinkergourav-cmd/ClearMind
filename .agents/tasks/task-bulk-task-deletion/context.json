@@ -1,0 +1,20 @@
+{
+  "project_type": "React SPA with Vite",
+  "language": "JavaScript (JSX)",
+  "build_system": "Vite with npm",
+  "test_framework": "None (no test files found)",
+  "build_command": "npm run build",
+  "test_command": "npm run build",
+  "verification_instructions": "Run `npm run build` to confirm no compilation errors. Manually verify the bulk delete UI in the Task panel.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "npm install",
+  "environment_constraints": "No test framework. Verification is via successful build.",
+  "contribution_requirements": "Follow existing patterns in PinPanel.jsx for bulk delete UI. Use lucide-react icons. Use Tailwind CSS for styling.",
+  "key_patterns": "Bulk delete in PinPanel.jsx uses: deleteMode state (boolean), selectedForDelete state (Set of IDs), showDeleteConfirm state (boolean), select all / deselect all, confirmation modal. The FullTaskManager component receives onDeleteTask prop but deleting tasks through it removes linked pins. For bulk delete, we need a new prop (onBulkDeleteTasks) that converts linked pins to standalone instead of deleting them.",
+  "relevant_files": [
+    "src/FullTaskManager.jsx",
+    "src/PinPanel.jsx",
+    "src/App.jsx"
+  ],
+  "directory_structure": "src/ contains all components. App.jsx is the root with all state management. FullTaskManager.jsx is the Task panel component. PinPanel.jsx has the reference bulk delete pattern."
+}
