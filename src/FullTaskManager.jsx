@@ -21,6 +21,7 @@ import {
   MoreVertical,
   Maximize2,
   Minimize2,
+  Check,
 } from 'lucide-react';
 import { GROUP_COLORS } from './taskConstants';
 
@@ -57,6 +58,7 @@ export default function FullTaskManager({
   onAddTask,
   onUpdateTask,
   onDeleteTask,
+  onBulkDeleteTasks,
   onReorderTask,
   onStartLocationSelection,
   onNavigateToLocation,
@@ -89,6 +91,11 @@ export default function FullTaskManager({
   const statusDropdownRef = useRef(null);
   const groupDropdownRef = useRef(null);
   const reorderDropdownRef = useRef(null);
+
+  // Bulk delete state
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // New task form state
   const [newTitle, setNewTitle] = useState('');
@@ -231,6 +238,31 @@ export default function FullTaskManager({
     return (workspaces || []).some(ws => (ws.pins || []).some(p => p.id === task.locationPinId));
   };
 
+  // Bulk delete helpers
+  const cancelDeleteMode = () => {
+    setDeleteMode(false);
+    setSelectedForDelete(new Set());
+    setShowDeleteConfirm(false);
+  };
+
+  const toggleDeleteSelection = (taskId) => {
+    setSelectedForDelete(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const confirmBulkDelete = () => {
+    if (onBulkDeleteTasks) {
+      onBulkDeleteTasks(Array.from(selectedForDelete));
+    }
+    setSelectedForDelete(new Set());
+    setDeleteMode(false);
+    setShowDeleteConfirm(false);
+  };
+
   // Group tasks by groupId
   const groupedTasks = useMemo(() => {
     let filtered = (tasks || []).filter(task => {
@@ -283,8 +315,26 @@ export default function FullTaskManager({
 
   const sortedGroups = [...groups].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 
+  // Collect all visible task IDs for "Select All"
+  const allVisibleTaskIds = useMemo(() => {
+    const ids = [];
+    sortedGroups.forEach(group => {
+      const gTasks = groupedTasks[group.id] || [];
+      gTasks.forEach(task => ids.push(task.id));
+    });
+    return ids;
+  }, [sortedGroups, groupedTasks]);
+
+  const selectAllForDelete = () => {
+    if (selectedForDelete.size === allVisibleTaskIds.length) {
+      setSelectedForDelete(new Set());
+    } else {
+      setSelectedForDelete(new Set(allVisibleTaskIds));
+    }
+  };
+
   return (
-    <div className={isPanel ? 'w-1/2 bg-white border-l border-slate-200 flex flex-col overflow-hidden shrink-0 h-full' : 'fixed inset-0 z-50 bg-white flex flex-col'}>
+    <div className={isPanel ? 'relative w-1/2 bg-white border-l border-slate-200 flex flex-col overflow-hidden shrink-0 h-full' : 'fixed inset-0 z-50 bg-white flex flex-col'}>
       {/* Toolbar - compact single-row layout */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-200 bg-slate-50 shrink-0">
         {/* Toggle Fullscreen */}
@@ -363,6 +413,15 @@ export default function FullTaskManager({
 
         {/* Action buttons */}
         <div className="flex items-center gap-1 ml-auto shrink-0">
+          {/* Bulk Delete Toggle */}
+          <button
+            onClick={() => { if (deleteMode) cancelDeleteMode(); else setDeleteMode(true); }}
+            className={`p-1 rounded border transition-colors ${deleteMode ? 'bg-red-50 border-red-300 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-500 hover:text-red-500'}`}
+            title={deleteMode ? 'Cancel Delete' : 'Bulk Delete'}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+
           {/* New Group */}
           <button
             onClick={() => {
@@ -395,6 +454,28 @@ export default function FullTaskManager({
           </button>
         </div>
       </div>
+
+      {/* Delete Mode: Select All + Confirm Bar */}
+      {deleteMode && (
+        <div className="px-3 py-2 border-b border-red-100 bg-red-50/50 shrink-0 flex items-center gap-2">
+          <button
+            onClick={selectAllForDelete}
+            className="text-[10px] font-semibold text-red-700 hover:text-red-800 underline transition-colors"
+          >
+            {selectedForDelete.size === allVisibleTaskIds.length ? 'Deselect All' : 'Select All'}
+          </button>
+          <span className="text-[10px] text-red-500 flex-1">
+            {selectedForDelete.size} selected
+          </span>
+          <button
+            onClick={() => { if (selectedForDelete.size > 0) setShowDeleteConfirm(true); }}
+            disabled={selectedForDelete.size === 0}
+            className="px-2.5 py-1 text-[10px] font-semibold bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Delete ({selectedForDelete.size})
+          </button>
+        </div>
+      )}
 
       {/* New Task Form (inline at top) */}
       {showNewTaskForm && (
@@ -592,9 +673,23 @@ export default function FullTaskManager({
                       className={`flex items-center px-4 py-1.5 border-b border-slate-50 cursor-pointer transition-colors border-l-2 ${
                         isEditing ? `bg-slate-50 ${colorCfg.headerBorder}` : isSelected ? `bg-indigo-50/50 border-l-transparent` : `border-l-transparent hover:bg-slate-50`
                       } ${viewMode === 'all' && task.status === 'completed' ? 'opacity-50' : ''}`}
-                      onClick={() => handleRowClick(task)}
-                      onDoubleClick={() => handleRowDoubleClick(task)}
+                      onClick={() => { if (deleteMode) { toggleDeleteSelection(task.id); return; } handleRowClick(task); }}
+                      onDoubleClick={() => { if (deleteMode) return; handleRowDoubleClick(task); }}
                     >
+                      {/* Checkbox for delete mode */}
+                      {deleteMode && (
+                        <div className="w-5 shrink-0 flex items-center justify-center">
+                          <div
+                            className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${
+                              selectedForDelete.has(task.id)
+                                ? 'bg-red-500 border-red-500'
+                                : 'border-slate-300 hover:border-red-400'
+                            }`}
+                          >
+                            {selectedForDelete.has(task.id) && <Check className="w-2.5 h-2.5 text-white" />}
+                          </div>
+                        </div>
+                      )}
                       {/* Status - readable text with dropdown */}
                       <div className={`${isPanel ? 'w-20' : 'w-24'} shrink-0 relative`} ref={statusDropdownTaskId === task.id ? statusDropdownRef : null}>
                         <button
@@ -947,6 +1042,38 @@ export default function FullTaskManager({
           );
         })}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 p-4 max-w-[300px] w-full mx-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Trash2 className="w-5 h-5 text-red-500" />
+              <h4 className="text-sm font-bold text-slate-800">Confirm Deletion</h4>
+            </div>
+            <p className="text-xs text-slate-600 mb-2">
+              Are you sure you want to delete <strong>{selectedForDelete.size}</strong> task{selectedForDelete.size > 1 ? 's' : ''}? This action cannot be undone.
+            </p>
+            <p className="text-[10px] text-slate-500 mb-4">
+              Any linked location pins will be converted to standalone pins.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmBulkDelete}
+                className="px-3 py-1.5 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+              >
+                Delete All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
