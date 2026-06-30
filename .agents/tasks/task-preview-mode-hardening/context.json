@@ -1,0 +1,22 @@
+{
+  "project_type": "React 18 SPA with Vite 6, Tailwind CSS, Firebase backend",
+  "language": "JavaScript (JSX)",
+  "build_system": "Vite 6 via npm scripts",
+  "test_framework": "None configured",
+  "build_command": "npm run build",
+  "test_command": "N/A - no test framework",
+  "verification_instructions": "Run npm run build to verify no compilation errors. Manual functional testing required.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "npm install && npm run build",
+  "environment_constraints": "No test framework. Verification limited to successful build and code review.",
+  "contribution_requirements": "Create a new branch from main for the fix. PR against main on tinkergourav-cmd/ClearMind.",
+  "key_patterns": "isPreviewMode guard pattern: `if (isPreviewMode) return;` at the top of mutation functions. All auto-save effects already early-return in Preview Mode. UI elements hidden with `{!isPreviewMode && (...)}` conditional rendering.",
+  "relevant_files": [
+    "src/App.jsx - main component (7308 lines), contains appMode state, all canvas interaction handlers, mutation functions",
+    "src/CardEditorPanel.jsx - card editing panel (already has guards)",
+    "src/FullTaskManager.jsx - task management panel (already has guards)",
+    "src/PinPanel.jsx - pin panel (partially guarded via UI hiding)",
+    "src/ReminderPanel.jsx - reminder panel (already has guards)"
+  ],
+  "directory_structure": "src/ contains all source files. Single-page app with App.jsx as the monolithic component (~7308 lines). Sub-panels are separate components that receive isPreviewMode as a prop."
+}

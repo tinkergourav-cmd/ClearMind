@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-002",
+  "type": "fix",
+  "description": "Add isPreviewMode defense-in-depth guards to inline mutation handlers in the multi-select floating action bar (Delete, Duplicate, Link, Group buttons)",
+  "status": "in_progress",
+  "steps": [
+    "Add `if (isPreviewMode) return;` as the first statement inside the Delete button's onClick closure",
+    "Add `if (isPreviewMode) return;` as the first statement inside the Duplicate button's onClick closure",
+    "Add `if (isPreviewMode) return;` as the first statement inside the Link button's onClick closure",
+    "Add `if (isPreviewMode) return;` as the first statement inside the Group button's onClick closure",
+    "Run npm run build to verify no compilation errors"
+  ],
+  "acceptance_criteria": [
+    "The Delete button onClick handler checks isPreviewMode before any mutation",
+    "The Duplicate button onClick handler checks isPreviewMode before any mutation",
+    "The Link button onClick handler checks isPreviewMode before any mutation",
+    "The Group button onClick handler checks isPreviewMode before any mutation",
+    "npm run build succeeds with no errors"
+  ],
+  "verification": [
+    "Run `npm run build` and confirm exit code 0"
+  ],
+  "blocked_reason": null,
+  "findings": null
+}
