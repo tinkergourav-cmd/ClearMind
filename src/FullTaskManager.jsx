@@ -74,6 +74,7 @@ export default function FullTaskManager({
   onReorderGroup,
   mode = 'fullscreen',
   onToggleFullscreen,
+  isPreviewMode = false,
 }) {
   const isPanel = mode === 'panel';
   const [searchQuery, setSearchQuery] = useState('');
@@ -186,6 +187,7 @@ export default function FullTaskManager({
   };
 
   const handleCreateTask = (andSetLocation = false) => {
+    if (isPreviewMode) return;
     if (!newTitle.trim()) return;
     const newTaskId = onAddTask({
       title: newTitle.trim(),
@@ -204,12 +206,14 @@ export default function FullTaskManager({
   };
 
   const handleTitleDoubleClick = (e, task) => {
+    if (isPreviewMode) return;
     e.stopPropagation();
     setEditingTitleTaskId(task.id);
     setEditTitleValue(task.title);
   };
 
   const saveTitleEdit = (taskId) => {
+    if (isPreviewMode) return;
     if (!editTitleValue.trim()) return;
     onUpdateTask(taskId, { title: editTitleValue.trim() });
     setEditingTitleTaskId(null);
@@ -436,6 +440,7 @@ export default function FullTaskManager({
           </button>
 
           {/* New Task */}
+          {!isPreviewMode && (
           <button
             onClick={() => setShowNewTaskForm(!showNewTaskForm)}
             className="flex items-center gap-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-semibold rounded transition-colors"
@@ -443,6 +448,7 @@ export default function FullTaskManager({
             <Plus className="w-3 h-3" />
             Task
           </button>
+          )}
 
           {/* Close */}
           <button

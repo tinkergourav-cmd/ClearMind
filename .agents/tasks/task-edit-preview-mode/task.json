@@ -1,0 +1,14 @@
+{
+  "task_id": "task-edit-preview-mode",
+  "task_description": "Implement a global Edit Mode / Preview Mode feature. Preview Mode makes the project read-only: users can navigate, zoom, pan, read content, and view data, but cannot create, edit, move, resize, delete, or modify anything. No database writes should occur in Preview Mode. A toggle button in the header shows and switches between modes.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Build succeeds. Semantic review v2 verdict: APPROVED. All 7 critical/moderate issues from v1 review were fixed. 3 remaining low-severity non-blocking issues noted (cosmetic UX gaps only)."
+  }
+}

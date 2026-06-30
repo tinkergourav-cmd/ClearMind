@@ -554,8 +554,10 @@ export default function WorkflowApp() {
   const [storedPassword, setStoredPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // --- Edit Mode ---
-  const [editMode, setEditMode] = useState(true);
+  // --- App Mode (Edit / Preview) ---
+  const [appMode, setAppMode] = useState('edit'); // 'edit' | 'preview'
+  const isPreviewMode = appMode === 'preview';
+  const editMode = appMode === 'edit'; // backward-compat alias for inline text editing checks
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [showGatePassword, setShowGatePassword] = useState(false);
@@ -645,6 +647,7 @@ export default function WorkflowApp() {
 
   const handleContextMenu = useCallback((e) => {
     e.preventDefault();
+    if (isPreviewMode) return;
     if (!workspaceRef.current) return;
     const rect = workspaceRef.current.getBoundingClientRect();
     const isClickBg = e.target === workspaceRef.current || e.target.classList.contains('canvas-grid-clickable');
@@ -657,7 +660,7 @@ export default function WorkflowApp() {
     });
     setNodeContextMenu(null);
     setGroupContextMenu(null);
-  }, []);
+  }, [isPreviewMode]);
 
 
   // --- Touch Gesture Handlers (Pinch-to-Zoom & One-Finger Pan) ---
@@ -1227,6 +1230,7 @@ export default function WorkflowApp() {
   // changes activeProjectId must also pre-persist the old project to avoid data loss.
   useEffect(() => {
     if (!initialized || !activeProjectId) return;
+    if (isPreviewMode) return; // No saves in Preview Mode
     debouncedWorkspaceSaverRef.current(() => {
       const currentWorkspaces = workspaces;
       const prevWorkspaces = prevWorkspacesRef.current;
@@ -1307,6 +1311,7 @@ export default function WorkflowApp() {
   // (b) Task autosave (500ms): watches [tasks, taskGroups]
   useEffect(() => {
     if (!initialized || !activeProjectId) return;
+    if (isPreviewMode) return; // No saves in Preview Mode
     debouncedTaskSaverRef.current(() => {
       const tasksData = { tasks, taskGroups };
       saveTasks(activeProjectId, tasksData);
@@ -1338,6 +1343,7 @@ export default function WorkflowApp() {
   // (c) Metadata autosave (200ms): watches [nextId, reminders]
   useEffect(() => {
     if (!initialized || !activeProjectId) return;
+    if (isPreviewMode) return; // No saves in Preview Mode
     debouncedMetaSaverRef.current(() => {
       const projMeta = loadProjectMeta(activeProjectId);
       if (projMeta) {
@@ -1443,6 +1449,7 @@ export default function WorkflowApp() {
   }, [updateHistory]);
 
   const performUndo = useCallback(() => {
+    if (isPreviewMode) return;
     if (pastRef.current.length === 0) return;
     const newPast = [...pastRef.current];
     const prev = newPast.pop();
@@ -1454,9 +1461,10 @@ export default function WorkflowApp() {
     setWorkspaces(prev.workspaces);
     setActiveTab(prev.activeTab);
     setNextId(prev.nextId);
-  }, [updateHistory]);
+  }, [updateHistory, isPreviewMode]);
 
   const performRedo = useCallback(() => {
+    if (isPreviewMode) return;
     if (futureRef.current.length === 0) return;
     const newFuture = [...futureRef.current];
     const next = newFuture.shift();
@@ -1468,7 +1476,7 @@ export default function WorkflowApp() {
     setWorkspaces(next.workspaces);
     setActiveTab(next.activeTab);
     setNextId(next.nextId);
-  }, [updateHistory]);
+  }, [updateHistory, isPreviewMode]);
 
   const activeWs = workspaces.find(w => w.id === activeTab) || workspaces[0];
   const nodes = activeWs?.nodes || [];
@@ -1486,6 +1494,66 @@ export default function WorkflowApp() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToastMessage(''), 2000);
   }, []);
+
+  // --- Toggle App Mode (Edit <-> Preview) ---
+  const toggleAppMode = useCallback(async () => {
+    setAppMode(prev => {
+      if (prev === 'edit') {
+        // Switching to Preview: cancel in-progress editing, clear drag states, close menus
+        setEditingTextNode(null);
+        setDraggingNode(null);
+        draggingNodeRef.current = null;
+        setDraggingGroup(null);
+        setResizingGroup(null);
+        setDraggingImage(null);
+        setDraggingPin(null);
+        setConnecting(null);
+        setContextMenu(null);
+        setNodeContextMenu(null);
+        setGroupContextMenu(null);
+        setOpenColorPicker(null);
+        setOpenLinkPicker(null);
+        setSelectedNodeIds([]);
+        setMobileSheet(null);
+        // Cancel any pending debounced saves to prevent writes in Preview Mode
+        debouncedWorkspaceSaverRef.current.cancel();
+        debouncedTaskSaverRef.current.cancel();
+        debouncedMetaSaverRef.current.cancel();
+        return 'preview';
+      } else {
+        return 'edit';
+      }
+    });
+
+    // If switching from preview to edit, hydrate data from storage/server
+    // This runs outside the state updater to avoid side effects inside a reducer
+    if (appMode === 'preview') {
+      try {
+        if (activeProjectId) {
+          const hydrated = await hydrateProject(activeProjectId);
+          if (hydrated) {
+            let targetWorkspaces = (hydrated.workspaces && hydrated.workspaces.length > 0)
+              ? hydrated.workspaces
+              : workspaces;
+            targetWorkspaces = targetWorkspaces.map(ws => {
+              const grps = ws.groups || [];
+              const nds = ws.nodes || [];
+              return { ...ws, groups: computeLayout(grps, nds), nodes: nds, edges: ws.edges || [] };
+            });
+            setWorkspaces(targetWorkspaces);
+            if (hydrated.activeTab) setActiveTab(hydrated.activeTab);
+            if (hydrated.nextId) setNextId(hydrated.nextId);
+            if (hydrated.reminders) setReminders(hydrated.reminders);
+            if (hydrated.pinGroups) setPinGroups(hydrated.pinGroups);
+            if (hydrated.tasks) setTasks(hydrated.tasks);
+            if (hydrated.taskGroups) setTaskGroups(hydrated.taskGroups);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to hydrate project on mode switch:', err);
+      }
+    }
+  }, [activeProjectId, workspaces, appMode]);
 
   // --- Copy/Cut/Paste Node Functions ---
   const copyNode = useCallback((nodeId) => {
@@ -1517,6 +1585,7 @@ export default function WorkflowApp() {
   }, [nodes, activeTab]);
 
   const pasteNode = useCallback((targetX, targetY) => {
+    if (isPreviewMode) return;
     const clipJson = localStorage.getItem('nexus-clipboard');
     if (!clipJson) return;
     try {
@@ -1661,6 +1730,7 @@ export default function WorkflowApp() {
   }, [groups, nodes, edges, activeTab]);
 
   const pasteGroup = useCallback((targetX, targetY) => {
+    if (isPreviewMode) return;
     const clipJson = localStorage.getItem('nexus-clipboard-group');
     if (!clipJson) return;
     try {
@@ -2023,17 +2093,14 @@ export default function WorkflowApp() {
     return () => window.removeEventListener('keydown', handleTimerKey);
   }, []);
 
-  // --- M key toggles edit mode ---
+  // --- M key toggles app mode (Edit / Preview) ---
   useEffect(() => {
     const handleEditModeKey = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
       if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
-        setEditMode(prev => {
-          if (prev) setEditingTextNode(null);
-          return !prev;
-        });
+        toggleAppMode();
       }
     };
     window.addEventListener('keydown', handleEditModeKey);
@@ -2156,6 +2223,7 @@ export default function WorkflowApp() {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
       if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       if (e.key === 'n' || e.key === 'N') {
+        if (isPreviewMode) return;
         e.preventDefault();
         addNodeRef.current();
       }
@@ -2170,6 +2238,7 @@ export default function WorkflowApp() {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
       if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       if (e.key === 'l' || e.key === 'L') {
+        if (isPreviewMode) return;
         if (selectedNodeIds.length < 2) return;
         e.preventDefault();
         if (selectedNodeIds.length === 2) {
@@ -2197,6 +2266,7 @@ export default function WorkflowApp() {
   useEffect(() => {
     const handleArrowKeys = (e) => {
       if (selectedNodeIds.length === 0) return;
+      if (isPreviewMode) return;
       // Don't capture if user is typing in an input/textarea
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       const STEP = 20;
@@ -2230,6 +2300,7 @@ export default function WorkflowApp() {
 
   // --- Workspace (Tab) Operations ---
   const addWorkspace = () => {
+    if (isPreviewMode) return;
     takeSnapshot();
     const newId = generateId();
     setWorkspaces(prev => [...prev, { id: newId, name: `Map Phase ${prev.length + 1}`, nodes: [], edges: [], groups: [] }]);
@@ -2247,6 +2318,7 @@ export default function WorkflowApp() {
   };
 
   const deleteWorkspace = (id, e) => {
+    if (isPreviewMode) { e.stopPropagation(); return; }
     e.stopPropagation();
     if (workspaces.length <= 1) return;
     takeSnapshot();
@@ -2280,11 +2352,13 @@ export default function WorkflowApp() {
   };
 
   const renameWorkspace = (id, newName) => {
+    if (isPreviewMode) return;
     setWorkspaces(prev => prev.map(ws => ws.id === id ? { ...ws, name: newName } : ws));
     setEditingTab(null);
   };
 
   const duplicateWorkspace = (wsId) => {
+    if (isPreviewMode) return;
     takeSnapshot();
     const source = workspaces.find(w => w.id === wsId);
     if (!source) return;
@@ -3512,6 +3586,7 @@ export default function WorkflowApp() {
     setIsAnimatingTransform(false);
 
     if (isSelectingTaskLocation) {
+      if (isPreviewMode) return;
       const rect = workspaceRef.current.getBoundingClientRect();
       const canvasX = (e.clientX - rect.left - transform.x) / transform.scale;
       const canvasY = (e.clientY - rect.top - transform.y) / transform.scale;
@@ -4003,8 +4078,8 @@ export default function WorkflowApp() {
   };
 
   const deleteImage = (imgId) => {
+    if (isPreviewMode) return;
     takeSnapshot();
-    // Get the URL of the image being deleted to check for shared references
     const deletedImage = (activeWs?.images || []).find(i => i.id === imgId);
     const deletedUrl = deletedImage?.url;
 
@@ -4028,6 +4103,7 @@ export default function WorkflowApp() {
   };
 
   const addNode = (clientX, clientY, targetGroupId = null) => {
+    if (isPreviewMode) return;
     if (!workspaceRef.current) return;
     takeSnapshot();
     const rect = workspaceRef.current.getBoundingClientRect();
@@ -4070,6 +4146,7 @@ export default function WorkflowApp() {
 
   // --- Pin System Functions ---
   const addPin = (canvasX, canvasY) => {
+    if (isPreviewMode) return;
     const currentPins = activeWs?.pins || [];
     const pinCount = currentPins.length + 1;
     const newPin = {
@@ -4157,6 +4234,7 @@ export default function WorkflowApp() {
   };
 
   const addTask = (taskData) => {
+    if (isPreviewMode) return null;
     const newId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setTasks(prev => {
       const newTask = {
@@ -4172,10 +4250,12 @@ export default function WorkflowApp() {
   };
 
   const updateTask = (taskId, updates) => {
+    if (isPreviewMode) return;
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t));
   };
 
   const deleteTask = (taskId) => {
+    if (isPreviewMode) return;
     setTasks(prev => {
       const task = prev.find(t => t.id === taskId);
       if (task && task.locationPinId) {
@@ -4190,6 +4270,7 @@ export default function WorkflowApp() {
   };
 
   const bulkDeleteTasks = (taskIds) => {
+    if (isPreviewMode) return;
     // Compute pin IDs to convert from current tasks state before entering any setter
     const tasksToDelete = tasks.filter(t => taskIds.includes(t.id));
     const pinIdsToConvert = tasksToDelete
@@ -4333,6 +4414,7 @@ export default function WorkflowApp() {
   };
 
   const createGroup = (clientX, clientY) => {
+    if (isPreviewMode) return;
     takeSnapshot();
     const rect = workspaceRef.current.getBoundingClientRect();
     let targetX, targetY;
@@ -4358,6 +4440,7 @@ export default function WorkflowApp() {
   };
 
   const duplicateNode = (nodeId) => {
+    if (isPreviewMode) return;
     takeSnapshot();
     const target = nodes.find(n => n.id === nodeId);
     if (!target) return;
@@ -4386,6 +4469,7 @@ export default function WorkflowApp() {
   };
 
   const cloneNode = (nodeId) => {
+    if (isPreviewMode) return;
     takeSnapshot();
     const target = nodes.find(n => n.id === nodeId);
     if (!target) return;
@@ -4416,6 +4500,7 @@ export default function WorkflowApp() {
   };
 
   const cloneNodeToWorkspace = (nodeId, targetWorkspaceId) => {
+    if (isPreviewMode) return;
     takeSnapshot();
     const target = nodes.find(n => n.id === nodeId);
     if (!target) return;
@@ -4450,6 +4535,7 @@ export default function WorkflowApp() {
   };
 
   const disconnectNodeLinks = (nodeId) => {
+    if (isPreviewMode) return;
     takeSnapshot();
     updateActiveWorkspace(ws => ({
       edges: ws.edges.filter(e => e.source !== nodeId && e.target !== nodeId)
@@ -4457,14 +4543,18 @@ export default function WorkflowApp() {
   };
 
 
-  const updateGroup = (id, updates) => updateActiveWorkspace(ws => {
-    const updatedGroups = ws.groups.map(g => g.id === id ? { ...g, ...updates } : g);
-    return {
-      groups: computeLayout(updatedGroups, ws.nodes)
-    };
-  });
+  const updateGroup = (id, updates) => {
+    if (isPreviewMode) return;
+    updateActiveWorkspace(ws => {
+      const updatedGroups = ws.groups.map(g => g.id === id ? { ...g, ...updates } : g);
+      return {
+        groups: computeLayout(updatedGroups, ws.nodes)
+      };
+    });
+  };
 
   const deleteGroup = (id) => {
+    if (isPreviewMode) return;
     takeSnapshot();
     updateActiveWorkspace(ws => {
       const filteredGroups = ws.groups.filter(g => g.id !== id).map(g => g.parentGroupId === id ? { ...g, parentGroupId: null } : g);
@@ -4477,6 +4567,7 @@ export default function WorkflowApp() {
   };
 
   const updateNode = (id, updates) => {
+    if (isPreviewMode) return;
     // Single atomic state update that handles both the direct node edit
     // and cross-workspace clone propagation in one pass
     const syncFields = {};
@@ -4522,6 +4613,7 @@ export default function WorkflowApp() {
   };
 
   const deleteNode = (id) => {
+    if (isPreviewMode) return;
     takeSnapshot();
     updateActiveWorkspace(ws => {
       const filteredNodes = ws.nodes.filter(n => n.id !== id)
@@ -4535,6 +4627,7 @@ export default function WorkflowApp() {
   };
 
   const bringToFront = (id) => {
+    if (isPreviewMode) return;
     updateActiveWorkspace(ws => {
       const idx = ws.nodes.findIndex(n => n.id === id);
       if (idx === -1) return ws;
@@ -4546,6 +4639,7 @@ export default function WorkflowApp() {
   };
 
   const sendToBack = (id) => {
+    if (isPreviewMode) return;
     updateActiveWorkspace(ws => {
       const idx = ws.nodes.findIndex(n => n.id === id);
       if (idx === -1) return ws;
@@ -5282,7 +5376,7 @@ export default function WorkflowApp() {
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] font-sans text-slate-800 selection:bg-indigo-100 overflow-hidden">
       
       {/* --- Top Command Toolbar --- */}
-      <header className="h-10 bg-white/50 backdrop-blur-sm border-b border-slate-200/80 flex items-center px-2 sm:px-3 z-50 justify-between shrink-0 gap-1 sm:gap-2 hover:bg-white/90 transition-all duration-300">
+      <header className={`h-10 bg-white/50 backdrop-blur-sm border-b border-slate-200/80 flex items-center px-2 sm:px-3 z-50 justify-between shrink-0 gap-1 sm:gap-2 hover:bg-white/90 transition-all duration-300 ${isPreviewMode ? 'border-t-2 border-t-amber-400' : ''}`}>
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
           <button 
             onClick={() => setShowSidebar(!showSidebar)}
@@ -5401,6 +5495,22 @@ export default function WorkflowApp() {
 
           <div className="w-px h-5 sm:h-6 bg-slate-200 mx-0.5 sm:mx-1"></div>
 
+          {/* App Mode Toggle (Edit / Preview) */}
+          <button
+            onClick={toggleAppMode}
+            className={`flex items-center gap-1 px-1.5 sm:px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+              isPreviewMode
+                ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
+                : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+            }`}
+            title={isPreviewMode ? 'Switch to Edit Mode (M)' : 'Switch to Preview Mode (M)'}
+          >
+            {isPreviewMode ? <Eye className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">{isPreviewMode ? 'Preview' : 'Edit'}</span>
+          </button>
+
+          <div className="w-px h-5 sm:h-6 bg-slate-200 mx-0.5 sm:mx-1"></div>
+
           {/* Always-visible Undo/Redo buttons */}
           <button onClick={performUndo} disabled={!canUndo} className={`p-1.5 rounded-lg transition-colors ${!canUndo ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100'}`} title="Undo">
             <Undo2 className="w-4 h-4" />
@@ -5426,6 +5536,7 @@ export default function WorkflowApp() {
             <>
             <div className="fixed inset-0 z-[99]" onClick={() => setShowMoreMenu(false)}></div>
             <div className="absolute top-full right-0 mt-2 w-52 sm:w-56 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-[100] max-w-[calc(100vw-1rem)]">
+              {!isPreviewMode && (<>
               <button onClick={() => { disperseOverlappingNodes(); setShowMoreMenu(false); }} className="w-full flex items-center px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
                 <RefreshCw className="w-4 h-4 mr-2.5 text-indigo-500" /> Disperse Overlaps
               </button>
@@ -5440,15 +5551,18 @@ export default function WorkflowApp() {
                 <Plus className="w-4 h-4 mr-2.5" /> Add Card
               </button>
               <div className="h-px bg-slate-100 my-1 mx-3"></div>
+              </>)}
               <button onClick={() => { exportAllData(); setShowMoreMenu(false); }} className="w-full flex items-center px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
                 <Download className="w-4 h-4 mr-2.5 text-blue-500" /> Export All Data
               </button>
+              {!isPreviewMode && (<>
               <button onClick={() => { fullBackupInputRef.current?.click(); setShowMoreMenu(false); }} className="w-full flex items-center px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
                 <Upload className="w-4 h-4 mr-2.5 text-green-500" /> Import All Data
               </button>
               <button onClick={() => { partialImportInputRef.current?.click(); setShowMoreMenu(false); }} className="w-full flex items-center px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
                 <ClipboardPaste className="w-4 h-4 mr-2.5 text-purple-500" /> Partial Import
               </button>
+              </>)}
             </div>
             </>
           )}
@@ -5555,14 +5669,14 @@ export default function WorkflowApp() {
                       {editingTab === ws.id ? (
                         <input autoFocus className="bg-transparent border-none outline-none w-full text-sm font-semibold" defaultValue={ws.name} onBlur={(e) => renameWorkspace(ws.id, e.target.value || 'Untitled')} onKeyDown={(e) => e.key === 'Enter' && renameWorkspace(ws.id, e.currentTarget.value || 'Untitled')} />
                       ) : (
-                        <span className="text-sm truncate" onDoubleClick={() => { takeSnapshot(); setEditingTab(ws.id); }}>{ws.name}</span>
+                        <span className="text-sm truncate" onDoubleClick={() => { if (isPreviewMode) return; takeSnapshot(); setEditingTab(ws.id); }}>{ws.name}</span>
                       )}
                     </div>
                     <div className="flex items-center gap-1">
                       <button onClick={(e) => { e.stopPropagation(); duplicateWorkspace(ws.id); }} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-slate-200" title="Duplicate workspace">
                         <Copy className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-500" />
                       </button>
-                      {workspaces.length > 1 && (
+                      {!isPreviewMode && workspaces.length > 1 && (
                         <button onClick={(e) => deleteWorkspace(ws.id, e)} className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-slate-200">
                           <X className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" />
                         </button>
@@ -5570,9 +5684,11 @@ export default function WorkflowApp() {
                     </div>
                   </div>
                 ))}
+                {!isPreviewMode && (
                 <button onClick={addWorkspace} className="flex items-center justify-center p-2 rounded-lg border border-dashed border-slate-200 hover:border-indigo-300 text-xs font-semibold text-indigo-600 hover:bg-indigo-50/50 transition-all mt-1">
                   <Plus className="w-3.5 h-3.5 mr-1" /> Add New Workspace
                 </button>
+                )}
               </div>
             </div>
 
@@ -5637,7 +5753,7 @@ export default function WorkflowApp() {
         {/* --- Main Workspace Canvas Area --- */}
         <main
           ref={workspaceRef}
-          className={`${showClonePanel ? 'flex-1 min-w-0' : 'flex-1'} relative overflow-hidden ${showClonePanel ? 'bg-[#1a1a2e]' : 'bg-[#1e1e2e]'} touch-none text-slate-800 transition-all duration-300`}
+          className={`${showClonePanel ? 'flex-1 min-w-0' : 'flex-1'} relative overflow-hidden ${showClonePanel ? 'bg-[#1a1a2e]' : 'bg-[#1e1e2e]'} touch-none text-slate-800 transition-all duration-300 ${isPreviewMode ? 'ring-2 ring-inset ring-amber-400/50' : ''}`}
           onPointerDown={handlePointerDownMain}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -5718,6 +5834,7 @@ export default function WorkflowApp() {
                       );
                       return;
                     }
+                    if (isPreviewMode) return;
                     setFocusedGroupId(group.id);
                     setFocusedNodeId(null);
                     dragSnapshot.current = JSON.parse(JSON.stringify(stateRef.current));
@@ -5736,6 +5853,7 @@ export default function WorkflowApp() {
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    if (isPreviewMode) return;
                     const rect = workspaceRef.current.getBoundingClientRect();
                     setGroupContextMenu({
                       x: e.clientX - rect.left,
@@ -5758,6 +5876,7 @@ export default function WorkflowApp() {
                       style={{ backgroundColor: theme.cardBg, color: '#1e293b', minWidth: '60px', width: `${Math.max(60, (group.name || '').length * 8 + 24)}px` }}
                       value={group.name || ''}
                       onChange={(e) => updateGroup(group.id, { name: e.target.value })}
+                      readOnly={isPreviewMode}
                     />
                   </div>
 
@@ -5765,6 +5884,7 @@ export default function WorkflowApp() {
                   <div 
                     className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize flex items-end justify-end p-0.5 z-30 pointer-events-auto"
                     onPointerDown={(e) => {
+                      if (isPreviewMode) return;
                       e.stopPropagation();
                       e.preventDefault();
                       dragSnapshot.current = JSON.parse(JSON.stringify(stateRef.current));
@@ -5792,7 +5912,7 @@ export default function WorkflowApp() {
                   </div>
                   <div 
                     className={`absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full cursor-crosshair z-30 flex items-center justify-center ${connecting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all`}
-                    onPointerDown={(e) => { e.stopPropagation(); const coords = getWorkspaceCoords(e); setConnecting({ sourceId: group.id, startX: displayX + displayW, startY: displayY + displayH / 2, currentX: coords.x, currentY: coords.y }); }}
+                    onPointerDown={(e) => { if (isPreviewMode) return; e.stopPropagation(); const coords = getWorkspaceCoords(e); setConnecting({ sourceId: group.id, startX: displayX + displayW, startY: displayY + displayH / 2, currentX: coords.x, currentY: coords.y }); }}
                     onGotPointerCapture={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); }}
                   >
                     <div className={`w-3 h-3 rounded-full border-2 border-white shadow ${theme.port}`} />
@@ -5869,6 +5989,7 @@ export default function WorkflowApp() {
                       );
                       return;
                     }
+                    if (isPreviewMode) return;
                     dragSnapshot.current = JSON.parse(JSON.stringify(stateRef.current));
                     setDraggingImage({
                       id: img.id,
@@ -5934,6 +6055,7 @@ export default function WorkflowApp() {
                   <div
                     className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full cursor-crosshair border-[3px] border-white z-30 shadow transition-all opacity-0 group-hover:opacity-100 bg-indigo-500 hover:bg-indigo-400"
                     onPointerDown={(e) => {
+                      if (isPreviewMode) return;
                       e.stopPropagation();
                       const coords = getWorkspaceCoords(e);
                       setConnecting({ sourceId: img.id, startX: img.x + imgW, startY: img.y + imgH / 2, currentX: coords.x, currentY: coords.y });
@@ -5983,6 +6105,7 @@ export default function WorkflowApp() {
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    if (isPreviewMode) return;
                     
                     const rect = workspaceRef.current.getBoundingClientRect();
                     setNodeContextMenu({
@@ -6002,6 +6125,7 @@ export default function WorkflowApp() {
                       );
                       return;
                     }
+                    if (isPreviewMode) return;
                     nodeTapRef.current = { id: node.id, startX: e.clientX, startY: e.clientY, time: Date.now(), pointerType: e.pointerType };
                     dragSnapshot.current = JSON.parse(JSON.stringify(stateRef.current));
                     bringToFront(node.id);
@@ -6125,6 +6249,7 @@ export default function WorkflowApp() {
                   )}
 
                   {/* Hover toolbar */}
+                  {!isPreviewMode && (
                   <div className="absolute -top-8 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white rounded-md shadow border border-slate-200 px-1 py-0.5" onPointerDown={(e) => e.stopPropagation()}>
                     <button 
                       onClick={(e) => { e.stopPropagation(); setOpenLinkPicker(openLinkPicker === node.id ? null : node.id); setOpenColorPicker(null); }}
@@ -6157,6 +6282,7 @@ export default function WorkflowApp() {
                     )}
                     <button onClick={() => deleteNode(node.id)} className="p-1 hover:bg-red-100 hover:text-red-600 rounded text-slate-400" title="Delete"><X className="w-3 h-3"/></button>
                   </div>
+                  )}
 
                   {/* Connection Ports - visible on hover */}
                   <div 
@@ -6168,7 +6294,7 @@ export default function WorkflowApp() {
                   </div>
                   <div 
                     className={`absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full cursor-crosshair z-30 flex items-center justify-center ${connecting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all`}
-                    onPointerDown={(e) => { e.stopPropagation(); bringToFront(node.id); const coords = getWorkspaceCoords(e); setConnecting({ sourceId: node.id, startX: node.x + nodeDims.width, startY: node.y + HEADER_CENTER_Y, currentX: coords.x, currentY: coords.y }); }}
+                    onPointerDown={(e) => { if (isPreviewMode) return; e.stopPropagation(); bringToFront(node.id); const coords = getWorkspaceCoords(e); setConnecting({ sourceId: node.id, startX: node.x + nodeDims.width, startY: node.y + HEADER_CENTER_Y, currentX: coords.x, currentY: coords.y }); }}
                     onGotPointerCapture={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); }}
                   >
                     <div className={`w-3 h-3 rounded-full border-2 border-white shadow ${theme.port}`} />
@@ -6209,6 +6335,7 @@ export default function WorkflowApp() {
                 onPointerDown={(e) => {
                   e.stopPropagation();
                   if (e.button !== 0) return;
+                  if (isPreviewMode) return;
                   setDraggingPin({
                     id: pin.id,
                     startX: e.clientX,
@@ -6339,16 +6466,11 @@ export default function WorkflowApp() {
             {/* Single vertical button column */}
             <div className="flex flex-col items-center bg-white rounded-lg shadow-lg border border-slate-200 p-1 gap-0.5">
               <button
-                onClick={() => {
-                  setEditMode(prev => {
-                    if (prev) setEditingTextNode(null);
-                    return !prev;
-                  });
-                }}
-                className={`p-1.5 sm:p-2 rounded-md transition-colors ${editMode ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}
-                title="Edit Mode (M)"
+                onClick={toggleAppMode}
+                className={`p-1.5 sm:p-2 rounded-md transition-colors ${editMode ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'}`}
+                title={isPreviewMode ? 'Switch to Edit Mode (M)' : 'Switch to Preview Mode (M)'}
               >
-                {editMode ? <Pencil className="w-4 h-4 sm:w-5 sm:h-5" /> : <MousePointer className="w-4 h-4 sm:w-5 sm:h-5" />}
+                {editMode ? <Pencil className="w-4 h-4 sm:w-5 sm:h-5" /> : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
               </button>
               <div className="h-px w-5 bg-slate-200 my-0.5" />
               <button
@@ -6789,6 +6911,7 @@ export default function WorkflowApp() {
             tasks={tasks}
             pinGroups={pinGroups}
             onUpdatePinGroups={setPinGroups}
+            isPreviewMode={isPreviewMode}
           />
         )}
 
@@ -6817,6 +6940,7 @@ export default function WorkflowApp() {
             }}
             onEnableAll={() => { setReminders(prev => prev.map(r => ({ ...r, enabled: true, nextReminderAt: Date.now() + r.frequency * 60000 }))); }}
             onDisableAll={() => { setReminders(prev => prev.map(r => ({ ...r, enabled: false, nextReminderAt: null }))); }}
+            isPreviewMode={isPreviewMode}
           />
         )}
 
@@ -6831,6 +6955,7 @@ export default function WorkflowApp() {
             }}
             onSnapshot={() => takeSnapshot()}
             onClose={() => setShowCardEditorPanel(false)}
+            isPreviewMode={isPreviewMode}
           />
         )}
 
@@ -6859,6 +6984,7 @@ export default function WorkflowApp() {
             onReorderGroup={reorderTaskGroup}
             mode={taskPanelMode}
             onToggleFullscreen={() => setTaskPanelMode(prev => prev === 'fullscreen' ? 'panel' : 'fullscreen')}
+            isPreviewMode={isPreviewMode}
           />
         )}
 
@@ -6871,12 +6997,14 @@ export default function WorkflowApp() {
                 <p className="text-[10px] text-slate-400 font-medium hidden sm:block">Structured nested view — changes sync to canvas instantly</p>
               </div>
               <div className="flex gap-1.5 sm:gap-2 shrink-0">
+                {!isPreviewMode && (<>
                 <button onClick={() => addNode()} className="flex items-center px-2 sm:px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow transition-all">
                   <Plus className="w-3.5 h-3.5 sm:mr-1" /><span className="hidden sm:inline"> Add Card</span>
                 </button>
                 <button onClick={() => createGroup()} className="flex items-center px-2 sm:px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg border border-indigo-200 transition-all">
                   <Layers className="w-3.5 h-3.5 sm:mr-1" /><span className="hidden sm:inline"> Add Group</span>
                 </button>
+                </>)}
               </div>
             </div>
             {outlineBoardContent}
@@ -6940,10 +7068,12 @@ export default function WorkflowApp() {
                 {[
                   { icon: <ArrowUp className="w-5 h-5" />, label: 'Bring Front', action: () => { bringToFront(mobileSheet); setMobileSheet(null); }, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
                   { icon: <ArrowDown className="w-5 h-5" />, label: 'Send Back', action: () => { sendToBack(mobileSheet); setMobileSheet(null); }, color: 'text-slate-600 bg-slate-50 border-slate-200' },
+                  ...(!isPreviewMode ? [
                   { icon: <Copy className="w-5 h-5" />, label: 'Duplicate', action: () => { duplicateNode(mobileSheet); setMobileSheet(null); }, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
                   { icon: <Link2 className="w-5 h-5" />, label: 'Disconnect', action: () => { disconnectNodeLinks(mobileSheet); setMobileSheet(null); }, color: 'text-amber-600 bg-amber-50 border-amber-200' },
                   { icon: <Palette className="w-5 h-5" />, label: 'Change Theme', action: () => { const themes = Object.keys(THEMES); const ci = themes.indexOf(sheetNode.theme); takeSnapshot(); updateNode(mobileSheet, { theme: themes[(ci + 1) % themes.length] }); }, color: 'text-purple-600 bg-purple-50 border-purple-200' },
                   { icon: <Trash2 className="w-5 h-5" />, label: 'Delete', action: () => { deleteNode(mobileSheet); setMobileSheet(null); }, color: 'text-red-600 bg-red-50 border-red-200' },
+                  ] : []),
                 ].map((item, i) => (
                   <button
                     key={i}
@@ -6968,7 +7098,7 @@ export default function WorkflowApp() {
       })()}
 
       {/* --- Multi-Select Floating Action Bar --- */}
-      {selectedNodeIds.length > 0 && (
+      {selectedNodeIds.length > 0 && !isPreviewMode && (
         <div ref={selectionMenuRef} className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] flex flex-col items-center transition-opacity ${selectionMenuOpen ? 'opacity-100' : 'opacity-50 hover:opacity-75'}`}>
           {selectionMenuOpen && (
             <div className="mb-2 bg-white rounded-xl shadow-xl border border-slate-200 p-2 flex flex-col gap-1 min-w-[180px]">

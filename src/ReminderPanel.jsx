@@ -186,6 +186,7 @@ export default function ReminderPanel({
   onExportReminders,
   onEnableAll,
   onDisableAll,
+  isPreviewMode = false,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -218,6 +219,7 @@ export default function ReminderPanel({
   };
 
   const startAdd = () => {
+    if (isPreviewMode) return;
     setEditingId('new');
     setEditForm({
       title: '',
@@ -233,6 +235,7 @@ export default function ReminderPanel({
   };
 
   const saveEdit = () => {
+    if (isPreviewMode) return;
     const freq = editForm.frequency === 'custom'
       ? Math.max(1, parseInt(customFreqInput, 10) || 60)
       : editForm.frequency;
