@@ -313,7 +313,7 @@ export default function FullTaskManager({
     { value: 'completed', label: 'Completed' },
   ];
 
-  const sortedGroups = [...groups].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  const sortedGroups = useMemo(() => [...groups].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)), [groups]);
 
   // Collect all visible task IDs for "Select All"
   const allVisibleTaskIds = useMemo(() => {

@@ -4190,24 +4190,25 @@ export default function WorkflowApp() {
   };
 
   const bulkDeleteTasks = (taskIds) => {
-    setTasks(prev => {
-      const tasksToDelete = prev.filter(t => taskIds.includes(t.id));
-      // For tasks with linked pins, convert those pins to standalone (pinGroupId = 'default')
-      const pinIdsToConvert = tasksToDelete
-        .filter(t => t.locationPinId)
-        .map(t => t.locationPinId);
-      if (pinIdsToConvert.length > 0) {
-        setWorkspaces(wsArr => wsArr.map(ws => ({
-          ...ws,
-          pins: (ws.pins || []).map(p =>
-            pinIdsToConvert.includes(p.id)
-              ? { ...p, pinGroupId: 'default' }
-              : p
-          ),
-        })));
-      }
-      return prev.filter(t => !taskIds.includes(t.id));
-    });
+    // Compute pin IDs to convert from current tasks state before entering any setter
+    const tasksToDelete = tasks.filter(t => taskIds.includes(t.id));
+    const pinIdsToConvert = tasksToDelete
+      .filter(t => t.locationPinId)
+      .map(t => t.locationPinId);
+
+    // Convert linked pins to standalone (pinGroupId = 'default')
+    if (pinIdsToConvert.length > 0) {
+      setWorkspaces(wsArr => wsArr.map(ws => ({
+        ...ws,
+        pins: (ws.pins || []).map(p =>
+          pinIdsToConvert.includes(p.id)
+            ? { ...p, pinGroupId: 'default' }
+            : p
+        ),
+      })));
+    }
+
+    setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
   };
 
   const reorderTask = (taskId, direction, partitionBy = 'section', targetPosition) => {
