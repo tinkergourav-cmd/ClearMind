@@ -382,6 +382,25 @@ function migrateWorkspaceIds(workspaces) {
   }));
 }
 
+// Helper: strip stale blob: URLs from workspace images that were persisted before
+// the upload completed. Blob URLs are session-scoped and invalid after page reload.
+function migrateStaleImageUrls(workspaces) {
+  return workspaces.map(ws => ({
+    ...ws,
+    images: (ws.images || []).map(img => {
+      if (img.url && img.url.startsWith('blob:')) {
+        // Blob URL is stale after reload - remove it, fall back to src (base64)
+        const { url, ...rest } = img;
+        return rest;
+      }
+      return img;
+    }).filter(img => {
+      // Remove images that have neither a valid url nor src (completely broken - no data to display)
+      return !!(img.url || img.src);
+    })
+  }));
+}
+
 export default function WorkflowApp() {
   // --- Core State ---
   const [workspaces, setWorkspaces] = useState([]);
@@ -926,6 +945,8 @@ export default function WorkflowApp() {
 
           // Migrate: stamp workspaceId on any objects missing it
           initialWorkspaces = migrateWorkspaceIds(initialWorkspaces);
+          // Migrate: clean up stale blob URLs from images
+          initialWorkspaces = migrateStaleImageUrls(initialWorkspaces);
           if (import.meta.env.DEV) validateWorkspaces(initialWorkspaces, 'after init migration', activeProj.tasks || []);
           
           setWorkspaces(initialWorkspaces);
@@ -1216,7 +1237,20 @@ export default function WorkflowApp() {
           edges: ws.edges || [],
           groups: ws.groups || [],
           pins: ws.pins || [],
-          images: ws.images || [],
+          // Strip blob: URLs from images before persisting (they are session-only)
+          images: (ws.images || []).map(im => {
+            const isBlobUrl = im.url && im.url.startsWith('blob:');
+            if (isBlobUrl && im.src) {
+              // Has base64 fallback - strip the blob URL, keep src
+              const { url, ...rest } = im;
+              return rest;
+            }
+            if (isBlobUrl && !im.src) {
+              // Blob URL without fallback (shouldn't happen, but guard against it)
+              return { ...im, url: undefined };
+            }
+            return im;
+          }),
           lastModified: Date.now()
         };
         saveWorkspaceToLocal(activeProjectId, ws.id, wsData);
@@ -2508,6 +2542,8 @@ export default function WorkflowApp() {
     });
     // Migrate: stamp workspaceId on any objects missing it
     targetWorkspaces = migrateWorkspaceIds(targetWorkspaces);
+    // Migrate: clean up stale blob URLs from images
+    targetWorkspaces = migrateStaleImageUrls(targetWorkspaces);
     const hydratedTasks = hydrated ? (hydrated.tasks || []) : [];
     const hydratedTaskGroups = hydrated ? (hydrated.taskGroups || []) : [];
     if (import.meta.env.DEV) validateWorkspaces(targetWorkspaces, 'after project switch', normalizeTasks(hydratedTasks));
@@ -2593,6 +2629,8 @@ export default function WorkflowApp() {
     });
     // Migrate: stamp workspaceId on any objects missing it
     targetWorkspaces = migrateWorkspaceIds(targetWorkspaces);
+    // Migrate: clean up stale blob URLs from images
+    targetWorkspaces = migrateStaleImageUrls(targetWorkspaces);
     const hydratedTasks = hydrated ? (hydrated.tasks || []) : [];
     const hydratedTaskGroups = hydrated ? (hydrated.taskGroups || []) : [];
     if (import.meta.env.DEV) validateWorkspaces(targetWorkspaces, 'after project cycle', normalizeTasks(hydratedTasks));
@@ -2906,6 +2944,8 @@ export default function WorkflowApp() {
       });
       // Migrate: stamp workspaceId on any objects missing it
       nextWorkspaces = migrateWorkspaceIds(nextWorkspaces);
+      // Migrate: clean up stale blob URLs from images
+      nextWorkspaces = migrateStaleImageUrls(nextWorkspaces);
       const hydratedTasks = hydrated ? (hydrated.tasks || []) : [];
       const hydratedTaskGroups = hydrated ? (hydrated.taskGroups || []) : [];
       if (import.meta.env.DEV) validateWorkspaces(nextWorkspaces, 'after project delete/switch', normalizeTasks(hydratedTasks));
@@ -3062,14 +3102,14 @@ export default function WorkflowApp() {
         if (importedData.workspaces && Array.isArray(importedData.workspaces)) {
           takeSnapshot();
           // Stamp workspaceId on all objects in imported workspaces
-          const migratedWorkspaces = importedData.workspaces.map(ws => ({
+          const migratedWorkspaces = migrateStaleImageUrls(importedData.workspaces.map(ws => ({
             ...ws,
             nodes: (ws.nodes || []).map(n => ({ ...n, workspaceId: ws.id })),
             edges: (ws.edges || []).map(e => ({ ...e, workspaceId: ws.id })),
             groups: (ws.groups || []).map(g => ({ ...g, workspaceId: ws.id })),
             pins: (ws.pins || []).map(p => ({ ...p, workspaceId: ws.id })),
             images: (ws.images || []).map(img => ({ ...img, workspaceId: ws.id }))
-          }));
+          })));
           setWorkspaces(migratedWorkspaces);
           if (import.meta.env.DEV) validateWorkspaces(migratedWorkspaces, 'after handleImport');
           setActiveTab(importedData.activeTab || migratedWorkspaces[0]?.id || '');
@@ -3124,7 +3164,7 @@ export default function WorkflowApp() {
             // Migrate workspaceId on all objects in all projects
             const migratedProjects = restoredProjects.map(proj => ({
               ...proj,
-              workspaces: migrateWorkspaceIds(proj.workspaces || [])
+              workspaces: migrateStaleImageUrls(migrateWorkspaceIds(proj.workspaces || []))
             }));
             if (import.meta.env.DEV) {
               migratedProjects.forEach(proj => validateWorkspaces(proj.workspaces || [], `after importAllData [project: ${proj.id}]`));
@@ -3886,21 +3926,6 @@ export default function WorkflowApp() {
         imageGroupId = containingGroups[0].id;
       }
 
-      takeSnapshot();
-      // Add image with temporary object URL while uploading
-      updateActiveWorkspace(ws => ({
-        images: [...(ws.images || []), {
-          id: imageId,
-          x: dropX,
-          y: dropY,
-          width: displayWidth,
-          height: displayHeight,
-          url: objectUrl,
-          groupId: imageGroupId,
-          workspaceId: activeTab
-        }]
-      }));
-
       // Resize and compress to JPEG 0.7 using canvas (max 1024px)
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -3908,14 +3933,33 @@ export default function WorkflowApp() {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, width, height);
 
+      // Generate base64 immediately as the persistent fallback (survives page reloads)
+      const base64 = canvas.toDataURL('image/jpeg', 0.7);
+
+      takeSnapshot();
+      // Add image with base64 src immediately (persists across sessions)
+      // and blob URL for fast preview during this session only
+      updateActiveWorkspace(ws => ({
+        images: [...(ws.images || []), {
+          id: imageId,
+          x: dropX,
+          y: dropY,
+          width: displayWidth,
+          height: displayHeight,
+          src: base64,
+          url: objectUrl,
+          groupId: imageGroupId,
+          workspaceId: activeTab
+        }]
+      }));
+
       canvas.toBlob((blob) => {
         if (!blob) {
-          console.warn('Canvas toBlob failed; keeping local preview for image:', imageId);
-          // Fall back to base64 src for persistence
-          const base64 = canvas.toDataURL('image/jpeg', 0.7);
+          console.warn('Canvas toBlob failed; keeping base64 for image:', imageId);
+          // base64 already set - just revoke the temporary blob URL
           updateActiveWorkspace(ws => ({
             images: (ws.images || []).map(im =>
-              im.id === imageId ? { ...im, src: base64, url: undefined } : im
+              im.id === imageId ? { ...im, url: undefined } : im
             )
           }));
           URL.revokeObjectURL(objectUrl);
@@ -3925,19 +3969,19 @@ export default function WorkflowApp() {
         // Upload compressed blob to Firebase Storage
         uploadImageToStorage(blob, activeProjectId, activeTab, imageId).then(downloadUrl => {
           if (downloadUrl) {
+            // Upload succeeded - replace blob URL with Firebase URL and remove base64 fallback
             URL.revokeObjectURL(objectUrl);
             updateActiveWorkspace(ws => ({
               images: (ws.images || []).map(im =>
-                im.id === imageId ? { ...im, url: downloadUrl } : im
+                im.id === imageId ? { ...im, url: downloadUrl, src: undefined } : im
               )
             }));
           } else {
-            // Upload failed - fall back to base64 for persistence
-            console.warn('Image upload failed; falling back to base64 for image:', imageId);
-            const base64 = canvas.toDataURL('image/jpeg', 0.7);
+            // Upload failed - base64 is already saved as `src`, just clear the blob URL
+            console.warn('Image upload failed; using base64 fallback for image:', imageId);
             updateActiveWorkspace(ws => ({
               images: (ws.images || []).map(im =>
-                im.id === imageId ? { ...im, src: base64, url: undefined } : im
+                im.id === imageId ? { ...im, url: undefined } : im
               )
             }));
             URL.revokeObjectURL(objectUrl);
@@ -5805,7 +5849,32 @@ export default function WorkflowApp() {
                     });
                   }}
                 >
-                  <img src={img.url || img.src} alt="Canvas image" className="w-full h-full object-cover" draggable={false} />
+                  <img
+                    src={img.url || img.src}
+                    alt="Canvas image"
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                    onError={(e) => {
+                      // If the primary URL fails (e.g. expired blob URL or network error),
+                      // try the fallback src. If both fail, show a placeholder.
+                      const target = e.currentTarget;
+                      if (img.src && img.url && !target.dataset.triedFallback) {
+                        // Primary url failed, try fallback src (base64)
+                        target.dataset.triedFallback = 'true';
+                        target.src = img.src;
+                      } else {
+                        // Both URL and src failed (or no fallback available) - show broken image placeholder
+                        target.style.display = 'none';
+                        const parent = target.parentElement;
+                        if (parent && !parent.querySelector('.img-error-placeholder')) {
+                          const placeholder = document.createElement('div');
+                          placeholder.className = 'img-error-placeholder absolute inset-0 flex items-center justify-center bg-slate-800/60 text-slate-400';
+                          placeholder.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
+                          parent.appendChild(placeholder);
+                        }
+                      }
+                    }}
+                  />
                   {/* Delete button on hover */}
                   <button
                     onClick={(e) => { e.stopPropagation(); deleteImage(img.id); }}
