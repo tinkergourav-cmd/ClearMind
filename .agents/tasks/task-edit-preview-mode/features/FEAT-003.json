@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-003",
+  "type": "fix",
+  "description": "Fix 7 issues identified in the code review: 5 missing variable declarations causing runtime crashes, async IIFE inside state updater anti-pattern, and missing preview mode guards on undo/redo/z-order operations.",
+  "status": "in_progress",
+  "steps": [
+    "Step 1: Re-add `const source = workspaces.find(w => w.id === wsId)` in duplicateWorkspace after the preview guard",
+    "Step 2: Re-add `const target = nodes.find(n => n.id === nodeId)` in cloneNode after the preview guard",
+    "Step 3: Re-add `const target = nodes.find(n => n.id === nodeId)` in cloneNodeToWorkspace after the preview guard",
+    "Step 4: Re-add `const task = prev.find(t => t.id === taskId)` inside the setTasks updater in deleteTask",
+    "Step 5: Re-add `const currentWorkspaces = workspaces` in the workspace auto-save effect",
+    "Step 6: Refactor toggleAppMode to move async hydration outside the state updater",
+    "Step 7: Add isPreviewMode guards to performUndo, performRedo, bringToFront, and sendToBack"
+  ],
+  "acceptance_criteria": [
+    "duplicateWorkspace does not throw ReferenceError for source",
+    "cloneNode does not throw ReferenceError for target",
+    "cloneNodeToWorkspace does not throw ReferenceError for target",
+    "deleteTask does not throw ReferenceError for task",
+    "Workspace auto-save effect does not crash on currentWorkspaces reference",
+    "toggleAppMode does not run async side effects inside state updater",
+    "performUndo, performRedo, bringToFront, sendToBack are gated in preview mode",
+    "npm run build succeeds without errors"
+  ],
+  "verification": [
+    "Run npm run build and confirm exit code is 0"
+  ],
+  "blocked_reason": null,
+  "findings": null
+}

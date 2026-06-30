@@ -1232,6 +1232,7 @@ export default function WorkflowApp() {
     if (!initialized || !activeProjectId) return;
     if (isPreviewMode) return; // No saves in Preview Mode
     debouncedWorkspaceSaverRef.current(() => {
+      const currentWorkspaces = workspaces;
       const prevWorkspaces = prevWorkspacesRef.current;
       const projMeta = loadProjectMeta(activeProjectId);
       // Save only workspaces whose reference changed (or all if no previous state)
@@ -1448,6 +1449,7 @@ export default function WorkflowApp() {
   }, [updateHistory]);
 
   const performUndo = useCallback(() => {
+    if (isPreviewMode) return;
     if (pastRef.current.length === 0) return;
     const newPast = [...pastRef.current];
     const prev = newPast.pop();
@@ -1459,9 +1461,10 @@ export default function WorkflowApp() {
     setWorkspaces(prev.workspaces);
     setActiveTab(prev.activeTab);
     setNextId(prev.nextId);
-  }, [updateHistory]);
+  }, [updateHistory, isPreviewMode]);
 
   const performRedo = useCallback(() => {
+    if (isPreviewMode) return;
     if (futureRef.current.length === 0) return;
     const newFuture = [...futureRef.current];
     const next = newFuture.shift();
@@ -1473,7 +1476,7 @@ export default function WorkflowApp() {
     setWorkspaces(next.workspaces);
     setActiveTab(next.activeTab);
     setNextId(next.nextId);
-  }, [updateHistory]);
+  }, [updateHistory, isPreviewMode]);
 
   const activeWs = workspaces.find(w => w.id === activeTab) || workspaces[0];
   const nodes = activeWs?.nodes || [];
@@ -1518,33 +1521,39 @@ export default function WorkflowApp() {
         debouncedMetaSaverRef.current.cancel();
         return 'preview';
       } else {
-        // Switching to Edit: reload data from storage/server
-        (async () => {
-          if (activeProjectId) {
-            const hydrated = await hydrateProject(activeProjectId);
-            if (hydrated) {
-              let targetWorkspaces = (hydrated.workspaces && hydrated.workspaces.length > 0)
-                ? hydrated.workspaces
-                : workspaces;
-              targetWorkspaces = targetWorkspaces.map(ws => {
-                const grps = ws.groups || [];
-                const nds = ws.nodes || [];
-                return { ...ws, groups: computeLayout(grps, nds), nodes: nds, edges: ws.edges || [] };
-              });
-              setWorkspaces(targetWorkspaces);
-              if (hydrated.activeTab) setActiveTab(hydrated.activeTab);
-              if (hydrated.nextId) setNextId(hydrated.nextId);
-              if (hydrated.reminders) setReminders(hydrated.reminders);
-              if (hydrated.pinGroups) setPinGroups(hydrated.pinGroups);
-              if (hydrated.tasks) setTasks(hydrated.tasks);
-              if (hydrated.taskGroups) setTaskGroups(hydrated.taskGroups);
-            }
-          }
-        })();
         return 'edit';
       }
     });
-  }, [activeProjectId, workspaces]);
+
+    // If switching from preview to edit, hydrate data from storage/server
+    // This runs outside the state updater to avoid side effects inside a reducer
+    if (appMode === 'preview') {
+      try {
+        if (activeProjectId) {
+          const hydrated = await hydrateProject(activeProjectId);
+          if (hydrated) {
+            let targetWorkspaces = (hydrated.workspaces && hydrated.workspaces.length > 0)
+              ? hydrated.workspaces
+              : workspaces;
+            targetWorkspaces = targetWorkspaces.map(ws => {
+              const grps = ws.groups || [];
+              const nds = ws.nodes || [];
+              return { ...ws, groups: computeLayout(grps, nds), nodes: nds, edges: ws.edges || [] };
+            });
+            setWorkspaces(targetWorkspaces);
+            if (hydrated.activeTab) setActiveTab(hydrated.activeTab);
+            if (hydrated.nextId) setNextId(hydrated.nextId);
+            if (hydrated.reminders) setReminders(hydrated.reminders);
+            if (hydrated.pinGroups) setPinGroups(hydrated.pinGroups);
+            if (hydrated.tasks) setTasks(hydrated.tasks);
+            if (hydrated.taskGroups) setTaskGroups(hydrated.taskGroups);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to hydrate project on mode switch:', err);
+      }
+    }
+  }, [activeProjectId, workspaces, appMode]);
 
   // --- Copy/Cut/Paste Node Functions ---
   const copyNode = useCallback((nodeId) => {
@@ -2351,6 +2360,7 @@ export default function WorkflowApp() {
   const duplicateWorkspace = (wsId) => {
     if (isPreviewMode) return;
     takeSnapshot();
+    const source = workspaces.find(w => w.id === wsId);
     if (!source) return;
     const newWsId = generateId();
     let idCounter = nextId;
@@ -4247,6 +4257,7 @@ export default function WorkflowApp() {
   const deleteTask = (taskId) => {
     if (isPreviewMode) return;
     setTasks(prev => {
+      const task = prev.find(t => t.id === taskId);
       if (task && task.locationPinId) {
         // Remove the orphaned pin from all workspaces
         setWorkspaces(wsArr => wsArr.map(ws => ({
@@ -4460,6 +4471,7 @@ export default function WorkflowApp() {
   const cloneNode = (nodeId) => {
     if (isPreviewMode) return;
     takeSnapshot();
+    const target = nodes.find(n => n.id === nodeId);
     if (!target) return;
 
     // Determine the clone source: if target is already a clone, use its source; otherwise use target itself
@@ -4490,6 +4502,7 @@ export default function WorkflowApp() {
   const cloneNodeToWorkspace = (nodeId, targetWorkspaceId) => {
     if (isPreviewMode) return;
     takeSnapshot();
+    const target = nodes.find(n => n.id === nodeId);
     if (!target) return;
 
     const sourceId = target.cloneSourceId || target.id;
@@ -4614,6 +4627,7 @@ export default function WorkflowApp() {
   };
 
   const bringToFront = (id) => {
+    if (isPreviewMode) return;
     updateActiveWorkspace(ws => {
       const idx = ws.nodes.findIndex(n => n.id === id);
       if (idx === -1) return ws;
@@ -4625,6 +4639,7 @@ export default function WorkflowApp() {
   };
 
   const sendToBack = (id) => {
+    if (isPreviewMode) return;
     updateActiveWorkspace(ws => {
       const idx = ws.nodes.findIndex(n => n.id === id);
       if (idx === -1) return ws;
