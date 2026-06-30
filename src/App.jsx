@@ -8,7 +8,7 @@ import {
   MoreVertical, ImageIcon, ChevronUp, Scissors, ClipboardPaste,
   Lock, Shield, Eye, EyeOff, GitBranch, Map, Timer,
   MapPin, Bell, Pencil, MousePointer, ListTodo, Cloud, CloudOff, Loader,
-  AlertTriangle
+  AlertTriangle, Minimize2
 } from 'lucide-react';
 import MiniMap from './MiniMap';
 import PinPanel, { PIN_ICONS } from './PinPanel';
@@ -6715,6 +6715,28 @@ export default function WorkflowApp() {
               </button>
               <button className="w-full text-left px-4 py-2 hover:bg-indigo-50 text-xs font-semibold text-slate-700 flex items-center" onClick={() => { cutGroup(groupContextMenu.groupId); setGroupContextMenu(null); }}>
                 <Scissors className="w-3.5 h-3.5 mr-2 text-slate-500" /> Cut Group
+              </button>
+              <button className="w-full text-left px-4 py-2 hover:bg-indigo-50 text-xs font-semibold text-slate-700 flex items-center" onClick={() => {
+                takeSnapshot();
+                const targetGroupId = groupContextMenu.groupId;
+                updateActiveWorkspace(ws => {
+                  const hasChildren = ws.nodes.some(n => n.groupId === targetGroupId) || ws.groups.some(g => g.parentGroupId === targetGroupId);
+                  const updatedGroups = ws.groups.map(g => {
+                    if (g.id === targetGroupId) {
+                      const cleared = { ...g, manualWidth: undefined, manualHeight: undefined };
+                      if (!hasChildren) {
+                        cleared.width = 200;
+                        cleared.height = 80;
+                      }
+                      return cleared;
+                    }
+                    return g;
+                  });
+                  return { groups: computeLayout(updatedGroups, ws.nodes) };
+                });
+                setGroupContextMenu(null);
+              }}>
+                <Minimize2 className="w-3.5 h-3.5 mr-2 text-slate-500" /> Fit to Contents
               </button>
               
               <div className="h-px bg-slate-150 my-1 w-full" />
