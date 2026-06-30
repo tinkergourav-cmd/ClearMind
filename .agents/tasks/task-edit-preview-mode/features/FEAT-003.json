@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "fix",
   "description": "Fix 7 issues identified in the code review: 5 missing variable declarations causing runtime crashes, async IIFE inside state updater anti-pattern, and missing preview mode guards on undo/redo/z-order operations.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1: Re-add `const source = workspaces.find(w => w.id === wsId)` in duplicateWorkspace after the preview guard",
     "Step 2: Re-add `const target = nodes.find(n => n.id === nodeId)` in cloneNode after the preview guard",
@@ -26,5 +26,5 @@
     "Run npm run build and confirm exit code is 0"
   ],
   "blocked_reason": null,
-  "findings": null
+  "findings": "All 7 issues fixed. Build passes successfully. The toggleAppMode refactor checks appMode === 'preview' (the current state before the updater runs) to determine whether to trigger hydration, which is correct since the function is called when we want to leave preview mode. Added isPreviewMode to useCallback dependency arrays for performUndo and performRedo."
 }
