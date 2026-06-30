@@ -1,0 +1,29 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Implement Preview Auto-Fit: In preview mode, groups visually shrink to their content bounds without modifying any persisted data. Position remains stable (top-left corner stays the same), only width/height shrink inward from right and bottom edges. Also update getConnectionPoint to use compact dimensions in preview mode so edges terminate at the visually compact border.",
+  "status": "pending",
+  "steps": [
+    "Step 1: Add `useMemo` to the React import at line 1 of src/App.jsx (currently imports useState, useRef, useEffect, useCallback).",
+    "Step 2: Create a `computePreviewBounds` function (or useMemo hook) that computes tight bounding boxes for all groups. For groups WITH children: use the same bounding-box algorithm as computeLayout lines 285-330 but WITHOUT the Math.max floor against manualWidth/manualHeight. For groups WITHOUT children: use a compact fallback like 200x80. The function takes (groups, nodes) and returns a Map/object of groupId -> { width, height } (position x,y stays the same as stored).",
+    "Step 3: Place the useMemo inside the App component after the groups/nodes state is available, with [groups, nodes, isPreviewMode] as dependencies. Only compute when isPreviewMode is true (return null/empty otherwise for performance).",
+    "Step 4: In the group rendering section (around line 5795), branch on isPreviewMode: if preview, use the computed tight width/height from the previewBounds map; otherwise use the existing `group.width || 440` and `group.height || 420`.",
+    "Step 5: In the getConnectionPoint function (around line 4957), when looking up a group's dimensions, branch on isPreviewMode: if preview and previewBounds has the group, use the tight width/height; otherwise use group.width || 440 / group.height || 420.",
+    "Step 6: In the connection port onPointerDown (around line 5920 where `displayX + displayW` is used for starting connection), ensure displayW is already updated by step 4 so this automatically uses the correct value (it should since displayW is defined from the same branching logic).",
+    "Step 7: Ensure NO modification to persisted state: width, height, manualWidth, manualHeight, project data, Firebase, or localStorage. The preview bounds are purely in-memory rendering overrides."
+  ],
+  "acceptance_criteria": [
+    "`npm run build` succeeds with no errors",
+    "The previewBounds computation only runs when isPreviewMode is true",
+    "Group positions (x, y) remain unchanged in preview mode - only width/height are reduced",
+    "Groups with children shrink to tight content bounds (no Math.max with manualWidth/manualHeight)",
+    "Empty groups use a compact fallback size (around 200x80)",
+    "getConnectionPoint uses the compact dimensions in preview mode",
+    "No persisted data is modified (no writes to width, height, manualWidth, manualHeight, Firebase, localStorage)"
+  ],
+  "verification": [
+    "Run `npm run build` and confirm it succeeds without errors"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

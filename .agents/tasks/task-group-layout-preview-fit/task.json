@@ -1,0 +1,7 @@
+{
+  "task_id": "task-group-layout-preview-fit",
+  "task_description": "Implement Preview Auto-Fit (groups visually shrink to content bounds in preview mode without modifying stored data, position remains stable) and add a manual 'Fit Group to Contents' edit-mode action in the group context menu.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Add a 'Fit Group to Contents' action in the group context menu (Edit Mode only). This permanently removes excess space by clearing manualWidth and manualHeight on the target group and re-running computeLayout. For empty groups, set width/height to a compact default.",
+  "status": "pending",
+  "steps": [
+    "Step 1: Add the `Minimize2` icon to the lucide-react import at the top of src/App.jsx (line 2-12). This icon visually represents shrinking/fitting content.",
+    "Step 2: In the group context menu section (around line 6655, between 'Cut Group' button and the divider before 'Delete Group'), add a new button: 'Fit to Contents'. Use the Minimize2 icon with the same styling pattern as other menu items (w-3.5 h-3.5 mr-2 text-slate-500).",
+    "Step 3: The onClick handler for 'Fit to Contents' should: (a) call takeSnapshot() for undo support, (b) call updateActiveWorkspace with a function that maps over groups, finds the target group by groupContextMenu.groupId, clears its manualWidth and manualHeight (set to undefined/null), and for empty groups (no child nodes or subgroups) also sets width to 200 and height to 80, (c) the updateActiveWorkspace callback should then run computeLayout on the updated groups (same pattern as updateGroup), (d) close the context menu with setGroupContextMenu(null).",
+    "Step 4: Add a divider (h-px bg-slate-150 my-1 w-full) before the 'Fit to Contents' button if one is not already in a logical place, placing it in the same section as Copy/Cut Group."
+  ],
+  "acceptance_criteria": [
+    "`npm run build` succeeds with no errors",
+    "The 'Fit to Contents' button appears in the group context menu between 'Cut Group' and 'Delete Group'",
+    "Clicking 'Fit to Contents' clears manualWidth and manualHeight on the target group",
+    "After clicking, computeLayout re-runs and the group shrinks to its content bounds",
+    "Empty groups get a compact default size (200x80 or similar)",
+    "takeSnapshot() is called before the modification for undo support",
+    "The action only works in edit mode (updateGroup already guards with isPreviewMode check, and context menu is disabled in preview)"
+  ],
+  "verification": [
+    "Run `npm run build` and confirm it succeeds without errors"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
