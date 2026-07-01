@@ -1,0 +1,26 @@
+{
+  "project_type": "React SPA with Vite bundler, single-file architecture (App.jsx is 7308 lines)",
+  "language": "JavaScript (JSX)",
+  "build_system": "Vite 6, npm scripts",
+  "test_framework": "No test framework configured - no test files exist",
+  "build_command": "npm run build",
+  "test_command": "No test command available (no test framework configured)",
+  "verification_instructions": "Run `npm run build` to verify the app compiles without errors. Manual visual testing would be needed for full validation.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "cd /projects/sandbox/ClearMind && npm install && npm run build",
+  "environment_constraints": "Internet access available. No test framework. node_modules not installed yet.",
+  "contribution_requirements": "No CONTRIBUTING.md found. Follow existing code patterns in App.jsx.",
+  "key_patterns": "All logic in src/App.jsx. State managed via useState hooks. Groups/nodes state updated through updateActiveWorkspace(). computeLayout() recalculates group dimensions. Preview mode controlled by isPreviewMode boolean. Icons from lucide-react. Tailwind CSS for styling.",
+  "relevant_files": [
+    "src/App.jsx (lines 1-12: imports)",
+    "src/App.jsx (lines 261-360: computeLayout function)",
+    "src/App.jsx (lines 558-559: appMode/isPreviewMode state)",
+    "src/App.jsx (lines 4546-4553: updateGroup function)",
+    "src/App.jsx (lines 4950-4970: getConnectionPoint function)",
+    "src/App.jsx (lines 5790-5810: group rendering with displayW/displayH)",
+    "src/App.jsx (lines 5900-5930: connection port onPointerDown using displayW/displayH)",
+    "src/App.jsx (lines 6615-6670: group context menu)",
+    "src/App.jsx (lines 3725-3745: resize handler setting manualWidth/manualHeight)"
+  ],
+  "directory_structure": "Single-page app: src/App.jsx (7308 lines main logic), src/MiniMap.jsx, src/PinPanel.jsx, src/ReminderPanel.jsx, src/FullTaskManager.jsx, src/CardEditorPanel.jsx, src/persistenceService.js, src/firebase.js, src/imageStorageService.js, src/workspaceValidator.js, src/taskConstants.js, src/MarkdownRenderer.jsx"
+}

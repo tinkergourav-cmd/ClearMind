@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plus, Trash2, X, ChevronDown, 
   FileText, Network, FolderOpen, Palette, Check, ZoomIn, ZoomOut, Focus,
@@ -8,7 +8,7 @@ import {
   MoreVertical, ImageIcon, ChevronUp, Scissors, ClipboardPaste,
   Lock, Shield, Eye, EyeOff, GitBranch, Map, Timer,
   MapPin, Bell, Pencil, MousePointer, ListTodo, Cloud, CloudOff, Loader,
-  AlertTriangle
+  AlertTriangle, Minimize2
 } from 'lucide-react';
 import MiniMap from './MiniMap';
 import PinPanel, { PIN_ICONS } from './PinPanel';
@@ -1482,6 +1482,77 @@ export default function WorkflowApp() {
   const nodes = activeWs?.nodes || [];
   const edges = activeWs?.edges || [];
   const groups = activeWs?.groups || [];
+
+  // --- Preview Auto-Fit: compute tight bounding boxes for groups in preview mode ---
+  const previewBounds = useMemo(() => {
+    if (!isPreviewMode) return null;
+    const boundsMap = {};
+
+    // Compute depths and sort deepest-first (same as computeLayout)
+    const getDepth = (g) => {
+      let depth = 0;
+      let curr = g;
+      while (curr && curr.parentGroupId) {
+        depth++;
+        curr = groups.find(p => p.id === curr.parentGroupId);
+      }
+      return depth;
+    };
+
+    const groupsWithDepth = groups.map(g => ({ ...g, depth: getDepth(g) }));
+    groupsWithDepth.sort((a, b) => b.depth - a.depth);
+
+    // First pass: initialize with stored or fallback dimensions
+    groups.forEach(g => {
+      boundsMap[g.id] = { width: g.width || 440, height: g.height || 420 };
+    });
+
+    // Second pass: compute tight bounds bottom-up
+    groupsWithDepth.forEach(group => {
+      const innerNodes = nodes.filter(n => n.groupId === group.id);
+      const innerSubgroups = groups.filter(g => g.parentGroupId === group.id);
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let hasChildren = false;
+
+      innerNodes.forEach(n => {
+        hasChildren = true;
+        const nW = 280;
+        const nH = 180;
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + nW);
+        maxY = Math.max(maxY, n.y + nH);
+      });
+
+      innerSubgroups.forEach(sg => {
+        hasChildren = true;
+        const sgBounds = boundsMap[sg.id];
+        const sgX = sg.x;
+        const sgY = sg.y;
+        minX = Math.min(minX, sgX);
+        minY = Math.min(minY, sgY);
+        maxX = Math.max(maxX, sgX + sgBounds.width);
+        maxY = Math.max(maxY, sgY + sgBounds.height);
+      });
+
+      if (hasChildren) {
+        const paddingX = 30;
+        const paddingTop = 60;
+        const paddingBottom = 40;
+
+        const calculatedW = (maxX - minX) + (paddingX * 2);
+        const calculatedH = (maxY - minY) + paddingTop + paddingBottom;
+
+        boundsMap[group.id] = { width: calculatedW, height: calculatedH };
+      } else {
+        // Empty group: compact fallback
+        boundsMap[group.id] = { width: 200, height: 80 };
+      }
+    });
+
+    return boundsMap;
+  }, [groups, nodes, isPreviewMode]);
 
   const cardEditorNode = (selectedNodeIds.length === 1) ? nodes.find(n => n.id === selectedNodeIds[0]) : null;
 
@@ -4967,8 +5038,8 @@ export default function WorkflowApp() {
       const group = groups.find(g => g.id === nodeId);
       if (group) {
         const coords = getLiveCoordinates(group, true);
-        const gW = group.width || 440;
-        const gH = group.height || 420;
+        const gW = (isPreviewMode && previewBounds && previewBounds[group.id]) ? previewBounds[group.id].width : (group.width || 440);
+        const gH = (isPreviewMode && previewBounds && previewBounds[group.id]) ? previewBounds[group.id].height : (group.height || 420);
         return {
           x: isSource ? coords.x + gW : coords.x,
           y: coords.y + gH / 2
@@ -5804,8 +5875,8 @@ export default function WorkflowApp() {
               const coords = getLiveCoordinates(group, true);
               const displayX = coords.x;
               const displayY = coords.y;
-              const displayW = group.width || 440;
-              const displayH = group.height || 420;
+              const displayW = (isPreviewMode && previewBounds && previewBounds[group.id]) ? previewBounds[group.id].width : (group.width || 440);
+              const displayH = (isPreviewMode && previewBounds && previewBounds[group.id]) ? previewBounds[group.id].height : (group.height || 420);
 
               const isTargetHover = dragHoveredGroupId === group.id;
 
@@ -6660,6 +6731,28 @@ export default function WorkflowApp() {
               </button>
               <button className="w-full text-left px-4 py-2 hover:bg-indigo-50 text-xs font-semibold text-slate-700 flex items-center" onClick={() => { cutGroup(groupContextMenu.groupId); setGroupContextMenu(null); }}>
                 <Scissors className="w-3.5 h-3.5 mr-2 text-slate-500" /> Cut Group
+              </button>
+              <button className="w-full text-left px-4 py-2 hover:bg-indigo-50 text-xs font-semibold text-slate-700 flex items-center" onClick={() => {
+                takeSnapshot();
+                const targetGroupId = groupContextMenu.groupId;
+                updateActiveWorkspace(ws => {
+                  const hasChildren = ws.nodes.some(n => n.groupId === targetGroupId) || ws.groups.some(g => g.parentGroupId === targetGroupId);
+                  const updatedGroups = ws.groups.map(g => {
+                    if (g.id === targetGroupId) {
+                      const cleared = { ...g, manualWidth: undefined, manualHeight: undefined };
+                      if (!hasChildren) {
+                        cleared.width = 200;
+                        cleared.height = 80;
+                      }
+                      return cleared;
+                    }
+                    return g;
+                  });
+                  return { groups: computeLayout(updatedGroups, ws.nodes) };
+                });
+                setGroupContextMenu(null);
+              }}>
+                <Minimize2 className="w-3.5 h-3.5 mr-2 text-slate-500" /> Fit to Contents
               </button>
               
               <div className="h-px bg-slate-150 my-1 w-full" />
